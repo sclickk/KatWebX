@@ -1,0 +1,10 @@
+[package]
+name = "katweb"
+version = "0.1.0"
+authors = ["kittyhacker101 <kittyhacker101@protonmail.com>"]
+
+[dependencies]
+futures = { version = "*" }
+bytes = { version = "*" }
+openssl = { version = "*", features = ["v110"] }
+actix-web = { version = "*", features = ["alpn", "brotli"] }
