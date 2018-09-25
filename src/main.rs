@@ -8,12 +8,12 @@ use futures::future::{Future, result};
 use std::fs;
 
 fn index(_req: &HttpRequest) -> Box<Future<Item=HttpResponse, Error=Error>> {
-	println!("{}", _req.path());
-
-	let mut path = _req.path();
-	if path == "/" {
-		path = "/index.html"
+	let mut pathd = [_req.path()].concat();
+	if pathd.ends_with("/") {
+		pathd = [pathd, "index.html".to_string()].concat();
 	}
+	let path = &pathd;
+	println!("{}", path);
 
 	let hosthead = _req.headers().get("host");
 	let mut host = "html";
@@ -49,12 +49,12 @@ fn index(_req: &HttpRequest) -> Box<Future<Item=HttpResponse, Error=Error>> {
 
 fn main() {
 	let mut builder = SslAcceptor::mozilla_modern(SslMethod::tls()).unwrap();
-	//builder.set_cipher_list(
-    //    "ECDHE-ECDSA-CHACHA20-POLY1305:ECDHE-RSA-CHACHA20-POLY1305:ECDHE-ECDSA-AES256-GCM-SHA384:\
-    //     ECDHE-RSA-AES256-GCM-SHA384:ECDHE-ECDSA-AES128-GCM-SHA256:ECDHE-RSA-AES128-GCM-SHA256"
-    //).unwrap();
-	//builder.set_max_proto_version(Some(SslVersion::TLS1_3)).unwrap();
-	//builder.set_ciphersuites("TLS_CHACHA20_POLY1305_SHA256:TLS_AES_256_GCM_SHA384:TLS_AES_128_GCM_SHA256").unwrap();
+	/*builder.set_cipher_list(
+		"ECDHE-ECDSA-CHACHA20-POLY1305:ECDHE-RSA-CHACHA20-POLY1305:ECDHE-ECDSA-AES256-GCM-SHA384:\
+		ECDHE-RSA-AES256-GCM-SHA384:ECDHE-ECDSA-AES128-GCM-SHA256:ECDHE-RSA-AES128-GCM-SHA256"
+    ).unwrap();
+	builder.set_max_proto_version(Some(SslVersion::TLS1_3)).unwrap();
+	builder.set_ciphersuites("TLS_CHACHA20_POLY1305_SHA256:TLS_AES_256_GCM_SHA384:TLS_AES_128_GCM_SHA256").unwrap();*/
 	builder.set_private_key_file("ssl/key.pem", SslFiletype::PEM).unwrap();
 	builder.set_certificate_chain_file("ssl/cert.pem").unwrap();
 
