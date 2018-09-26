@@ -57,7 +57,7 @@ fn index(_req: &HttpRequest) -> Box<Future<Item=HttpResponse, Error=Error>> {
 	if mime == "" {
 		mime = "application/octet-stream".to_string()
 	}
-	if mime.starts_with("text/") {
+	if mime.starts_with("text/") && !path.contains("charset") {
 		mime = [mime, "; charset=utf-8".to_string()].concat();
 	}
 	println!("{:?}",mime);
