@@ -2,10 +2,14 @@ extern crate bytes;
 extern crate futures;
 extern crate actix_web;
 extern crate openssl;
+extern crate mime;
+extern crate mime_guess;
+extern crate mime_sniffer;
 use actix_web::{middleware, server, App, HttpRequest, HttpResponse, AsyncResponder, Error, http::StatusCode};
 use openssl::ssl::{SslMethod, SslAcceptor, SslFiletype};
 use futures::future::{Future, result};
-use std::fs;
+use std::{cmp, fs};
+use mime_sniffer::MimeTypeSniffer;
 
 fn index(_req: &HttpRequest) -> Box<Future<Item=HttpResponse, Error=Error>> {
 	let mut pathd = [_req.path()].concat();
@@ -40,9 +44,24 @@ fn index(_req: &HttpRequest) -> Box<Future<Item=HttpResponse, Error=Error>> {
 		return "404".to_string()
 	});
 
+	let mut mime = mime_guess::guess_mime_type(path).to_string();
+	if mime == "application/octet-stream" {
+		let mreq = mime_sniffer::HttpRequest {
+			content: &f[0..cmp::min(512, f.len())].as_bytes(),
+			url: &["http://localhost", path].concat(),
+			type_hint: "",
+		};
+
+		mime = mreq.sniff_mime_type().unwrap_or("application/octet-stream").to_string();
+	}
+	if mime == "" {
+		mime = "application/octet-stream".to_string()
+	}
+	println!("{:?}",mime);
+
 	result(Ok(
 		HttpResponse::Ok()
-	        .content_type("text/html")
+	        .content_type(mime)
             .body(f)))
         	.responder()
 }
