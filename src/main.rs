@@ -5,9 +5,11 @@ extern crate openssl;
 extern crate mime;
 extern crate mime_guess;
 extern crate mime_sniffer;
-use actix_web::{middleware, server, App, HttpRequest, HttpResponse, AsyncResponder, Error, http::StatusCode};
+use actix_web::{middleware, server, App, HttpRequest, HttpResponse, AsyncResponder, Error, Body, http::StatusCode};
 use openssl::ssl::{SslMethod, SslAcceptor, SslFiletype};
 use futures::future::{Future, result};
+use bytes::Bytes;
+use futures::stream::once;
 use std::{cmp, fs::File, io::Read};
 use mime_sniffer::MimeTypeSniffer;
 
@@ -75,10 +77,11 @@ fn index(_req: &HttpRequest) -> Box<Future<Item=HttpResponse, Error=Error>> {
 	}
 	println!("{:?}",mime);
 
+	let body = once(Ok(Bytes::from(f)));
 	result(Ok(
 		HttpResponse::Ok()
 	        .content_type(mime)
-            .body(f)))
+            .body(Body::Streaming(Box::new(body)))))
         	.responder()
 }
 
