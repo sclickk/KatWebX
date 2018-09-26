@@ -8,8 +8,16 @@ extern crate mime_sniffer;
 use actix_web::{middleware, server, App, HttpRequest, HttpResponse, AsyncResponder, Error, http::StatusCode};
 use openssl::ssl::{SslMethod, SslAcceptor, SslFiletype};
 use futures::future::{Future, result};
-use std::{cmp, fs};
+use std::{cmp, fs::File, io::Read};
 use mime_sniffer::MimeTypeSniffer;
+
+fn read_file(path: &str) -> Result<Vec<u8>, Error> {
+	let mut f = File::open(path)?;
+	let mut buffer = Vec::new();
+	f.read_to_end(&mut buffer)?;
+
+	return Ok(buffer)
+}
 
 fn index(_req: &HttpRequest) -> Box<Future<Item=HttpResponse, Error=Error>> {
 	let mut pathd = [_req.path()].concat();
@@ -31,7 +39,6 @@ fn index(_req: &HttpRequest) -> Box<Future<Item=HttpResponse, Error=Error>> {
 	println!("{:?}",host);
 
 	if path.contains("..") {
-		println!("HTTP 403");
 		return result(Ok(
 			HttpResponse::Ok()
 				.status(StatusCode::FORBIDDEN)
@@ -40,24 +47,30 @@ fn index(_req: &HttpRequest) -> Box<Future<Item=HttpResponse, Error=Error>> {
 				.responder();
 	}
 
-	let f = fs::read_to_string("html".to_owned() + path).unwrap_or_else(|_err| {
-		return "404".to_string()
-	});
+	let f = read_file(&("html".to_owned() + path)).unwrap_or("404".as_bytes().to_vec());
+	if f == "404".as_bytes() {
+		return result(Ok(
+			HttpResponse::Ok()
+				.status(StatusCode::NOT_FOUND)
+				.content_type("text/plain")
+				.body("404 Not Found")))
+				.responder();
+	}
 
 	let mut mime = mime_guess::guess_mime_type(path).to_string();
 	if mime == "application/octet-stream" {
 		let mreq = mime_sniffer::HttpRequest {
-			content: &f[0..cmp::min(512, f.len())].as_bytes(),
+			content: &f[0..cmp::min(512, f.len())].to_vec(),
 			url: &["http://localhost", path].concat(),
-			type_hint: "",
+			type_hint: "unknown/unknown",
 		};
 
-		mime = mreq.sniff_mime_type().unwrap_or("application/octet-stream").to_string();
+		mime = mreq.sniff_mime_type().unwrap_or("text/plain; charset=utf-8").to_string();
 	}
-	if mime == "" {
+	if mime == "unknown/unknown" {
 		mime = "application/octet-stream".to_string()
 	}
-	if mime.starts_with("text/") && !path.contains("charset") {
+	if mime.starts_with("text/") && !mime.contains("charset") {
 		mime = [mime, "; charset=utf-8".to_string()].concat();
 	}
 	println!("{:?}",mime);
