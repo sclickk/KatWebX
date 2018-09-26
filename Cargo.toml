@@ -5,6 +5,9 @@ authors = ["kittyhacker101 <kittyhacker101@protonmail.com>"]
 
 [dependencies]
 futures = { version = "*" }
+mime = { version = "*" }
+mime_guess = { version = "*" }
+mime-sniffer = { version = "*" }
 bytes = { version = "*" }
 openssl = { version = "*", features = ["v110"] }
 actix-web = { version = "*", features = ["alpn", "brotli"] }
