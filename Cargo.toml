@@ -9,5 +9,5 @@ mime = { version = "*" }
 mime_guess = { version = "*" }
 mime-sniffer = { version = "*" }
 bytes = { version = "*" }
-openssl = { version = "*", features = ["v110"] }
+openssl = { version = "*", features = ["vendored"] }
 actix-web = { version = "*", features = ["alpn", "brotli"] }
