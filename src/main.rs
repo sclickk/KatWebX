@@ -8,7 +8,7 @@ extern crate mime;
 extern crate mime_guess;
 extern crate mime_sniffer;
 extern crate json;
-use actix_web::{server, App, HttpRequest, HttpResponse, AsyncResponder, Error, Body, http::StatusCode};
+use actix_web::{server, server::ServerFlags, App, HttpRequest, HttpResponse, AsyncResponder, Error, Body, http::StatusCode, server::OpensslAcceptor};
 use openssl::ssl::{SslMethod, SslAcceptor, SslFiletype};
 use futures::future::{Future, result};
 use bytes::Bytes;
@@ -123,6 +123,7 @@ fn main() {
 	builder.set_ciphersuites("TLS_CHACHA20_POLY1305_SHA256:TLS_AES_256_GCM_SHA384:TLS_AES_128_GCM_SHA256").unwrap();*/
 	builder.set_private_key_file("ssl/key.pem", SslFiletype::PEM).unwrap();
 	builder.set_certificate_chain_file("ssl/cert.pem").unwrap();
+	let acceptor = OpensslAcceptor::with_flags(builder, ServerFlags::HTTP1 | ServerFlags::HTTP2).unwrap();
 
     server::new(|| {
         vec![
@@ -132,7 +133,7 @@ fn main() {
 	})
 		.keep_alive(config["streamTimeout"].as_usize().unwrap_or(0)*4)
 		.shutdown_timeout(config["streamTimeout"].as_u16().unwrap_or(10))
-		.bind_ssl(["[::]:".to_string(), config["advanced"]["tlsPort"].as_u16().unwrap_or(443).to_string()].concat(), builder)
+		.bind_with(["[::]:".to_string(), config["advanced"]["tlsPort"].as_u16().unwrap_or(443).to_string()].concat(), acceptor)
         .unwrap()
 		.bind(["[::]:".to_string(), config["advanced"]["httpPort"].as_u16().unwrap_or(80).to_string()].concat())
 		.unwrap()
