@@ -13,7 +13,7 @@ use openssl::ssl::{SslMethod, SslAcceptor, SslFiletype};
 use futures::future::{Future, result};
 use bytes::Bytes;
 use futures::stream::once;
-use std::{process, cmp, fs, fs::File, io::Read};
+use std::{process, cmp, fs, fs::File, io::Read, path::Path};
 use mime_sniffer::MimeTypeSniffer;
 
 fn read_file(path: &str) -> Result<Vec<u8>, Error> {
@@ -24,57 +24,11 @@ fn read_file(path: &str) -> Result<Vec<u8>, Error> {
 	return Ok(buffer)
 }
 
-lazy_static! {
-	static ref confraw: String = fs::read_to_string("conf.json").unwrap_or("{\"cachingTimeout\": 4,\"streamTimeout\": 10,\"advanced\": {\"protect\": true,\"httpPort\": 80,\"tlsPort\": 443}}".to_string());
-	static ref config: json::JsonValue<> = json::parse(&confraw).unwrap_or_else(|_err| {
-		println!("[Fatal]: Unable to parse configuration!");
-		process::exit(1);
-	});
-}
-
-fn index(_req: &HttpRequest) -> Box<Future<Item=HttpResponse, Error=Error>> {
-
-	let mut pathd = [_req.path()].concat();
-	if pathd.ends_with("/") {
-		pathd = [pathd, "index.html".to_string()].concat();
-	}
-	let path = &pathd;
-	println!("{}", path);
-
-	let hosthead = _req.headers().get("host");
-	let mut host = "html";
-	if !hosthead.is_none() {
-		host = hosthead.unwrap().to_str().unwrap()
-	}
-	println!("{:?}",host);
-	if host == "ssl" || host.len() < 1 || host[0..1] == ".".to_string() || host.contains("/") || host.contains("\\") | host.contains("¥") {
-		host = "html"
-	}
-	println!("{:?}",host);
-
-	if path.contains("..") {
-		return result(Ok(
-			HttpResponse::Ok()
-				.status(StatusCode::FORBIDDEN)
-				.content_type("text/plain")
-				.body("403 Forbidden")))
-				.responder();
-	}
-
-	let f = read_file(&("html".to_owned() + path)).unwrap_or("404".as_bytes().to_vec());
-	if f == "404".as_bytes() {
-		return result(Ok(
-			HttpResponse::Ok()
-				.status(StatusCode::NOT_FOUND)
-				.content_type("text/plain")
-				.body("404 Not Found")))
-				.responder();
-	}
-
+fn get_mime(data: &Vec<u8>, path: &str) -> String {
 	let mut mime = mime_guess::guess_mime_type(path).to_string();
 	if mime == "application/octet-stream" {
 		let mreq = mime_sniffer::HttpRequest {
-			content: &f[0..cmp::min(512, f.len())].to_vec(),
+			content: data,
 			url: &["http://localhost", path].concat(),
 			type_hint: "unknown/unknown",
 		};
@@ -87,13 +41,60 @@ fn index(_req: &HttpRequest) -> Box<Future<Item=HttpResponse, Error=Error>> {
 	if mime.starts_with("text/") && !mime.contains("charset") {
 		mime = [mime, "; charset=utf-8".to_string()].concat();
 	}
-	println!("{:?}",mime);
 
+	return mime
+}
+
+lazy_static! {
+	static ref confraw: String = fs::read_to_string("conf.json").unwrap_or("{\"cachingTimeout\": 4,\"streamTimeout\": 10,\"advanced\": {\"protect\": true,\"httpPort\": 80,\"tlsPort\": 443}}".to_string());
+	static ref config: json::JsonValue<> = json::parse(&confraw).unwrap_or_else(|_err| {
+		println!("[Fatal]: Unable to parse configuration!");
+		process::exit(1);
+	});
+}
+
+fn index(_req: &HttpRequest) -> Box<Future<Item=HttpResponse, Error=Error>> {
+	let mut pathd = [_req.path()].concat();
+	if pathd.ends_with("/") {
+		pathd = [pathd, "index.html".to_string()].concat();
+	}
+	let path = &pathd;
+
+	let conn_info = _req.connection_info();
+	let mut host = conn_info.host();
+	if host == "ssl" || host.len() < 1 || host[0..1] == ".".to_string() || host.contains("/") || host.contains("\\") | host.contains("¥") {
+		host = "html"
+	}
+	println!("{:?}",[host, path].concat());
+	if !Path::new(host).exists() {
+		host = "html"
+	}
+
+	if path.contains("..") {
+		return result(Ok(
+			HttpResponse::Ok()
+				.status(StatusCode::FORBIDDEN)
+				.content_type("text/plain")
+				.body("403 Forbidden")))
+				.responder();
+	}
+
+	let f = read_file(&[host, path].concat()).unwrap_or("404".as_bytes().to_vec());
+	if f == "404".as_bytes() {
+		return result(Ok(
+			HttpResponse::Ok()
+				.status(StatusCode::NOT_FOUND)
+				.content_type("text/plain")
+				.body("404 Not Found")))
+				.responder();
+	}
+
+	let sniffer_data = &f[0..cmp::min(512, f.len())].to_vec();
 	let body = once(Ok(Bytes::from(f)));
 	let cache_int = config["cachingTimeout"].as_i64().unwrap_or(0);
 	result(Ok(
 		HttpResponse::Ok()
-	        .content_type(mime)
+	        .content_type(get_mime(sniffer_data, &[host, path].concat()))
 			.if_true(cache_int == 0, |builder| {
 				builder.header("Cache-Control", "no-store, must-revalidate");
 			})
@@ -112,7 +113,7 @@ fn index(_req: &HttpRequest) -> Box<Future<Item=HttpResponse, Error=Error>> {
 }
 
 fn main() {
-	println!("{:#}", config.dump());
+	fs::write("conf.json", config.pretty(2)).unwrap();
 
 	let mut builder = SslAcceptor::mozilla_modern(SslMethod::tls()).unwrap();
 	builder.set_cipher_list(
