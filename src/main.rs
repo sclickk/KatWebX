@@ -46,7 +46,7 @@ fn get_mime(data: &Vec<u8>, path: &str) -> String {
 }
 
 lazy_static! {
-	static ref confraw: String = fs::read_to_string("conf.json").unwrap_or("{\"cachingTimeout\": 4,\"streamTimeout\": 10,\"advanced\": {\"protect\": true,\"httpPort\": 80,\"tlsPort\": 443}}".to_string());
+	static ref confraw: String = fs::read_to_string("conf.json").unwrap_or("{\"cachingTimeout\": 4,\"streamTimeout\": 10,\"hide\": [\"src\"],\"advanced\": {\"protect\": true,\"httpPort\": 80,\"tlsPort\": 443}}".to_string());
 	static ref config: json::JsonValue<> = json::parse(&confraw).unwrap_or_else(|_err| {
 		println!("[Fatal]: Unable to parse configuration!");
 		process::exit(1);
@@ -62,7 +62,7 @@ fn index(_req: &HttpRequest) -> Box<Future<Item=HttpResponse, Error=Error>> {
 
 	let conn_info = _req.connection_info();
 	let mut host = conn_info.host();
-	if host == "ssl" || host.len() < 1 || host[0..1] == ".".to_string() || host.contains("/") || host.contains("\\") | host.contains("¥") {
+	if host == "ssl" || host.len() < 1 || host[0..1] == ".".to_string() || host.contains("/") || host.contains("\\") || config["hide"].contains(host) {
 		host = "html"
 	}
 	println!("{:?}",[host, path].concat());
@@ -113,18 +113,26 @@ fn index(_req: &HttpRequest) -> Box<Future<Item=HttpResponse, Error=Error>> {
 }
 
 fn main() {
-	fs::write("conf.json", config.pretty(2)).unwrap();
+	fs::write("conf.json", config.pretty(2)).unwrap_or_else(|_err| {
+		println!("[Warn]: Unable to write configuration!");
+	});
 
-	let mut builder = SslAcceptor::mozilla_modern(SslMethod::tls()).unwrap();
-	builder.set_cipher_list(
-		"ECDHE-ECDSA-CHACHA20-POLY1305:ECDHE-RSA-CHACHA20-POLY1305:ECDHE-ECDSA-AES256-GCM-SHA384:\
-		ECDHE-RSA-AES256-GCM-SHA384:ECDHE-ECDSA-AES128-GCM-SHA256:ECDHE-RSA-AES128-GCM-SHA256"
-    ).unwrap();
-	/*builder.set_max_proto_version(Some(SslVersion::TLS1_3)).unwrap();
-	builder.set_ciphersuites("TLS_CHACHA20_POLY1305_SHA256:TLS_AES_256_GCM_SHA384:TLS_AES_128_GCM_SHA256").unwrap();*/
-	builder.set_private_key_file("ssl/key.pem", SslFiletype::PEM).unwrap();
-	builder.set_certificate_chain_file("ssl/cert.pem").unwrap();
-	let acceptor = OpensslAcceptor::with_flags(builder, ServerFlags::HTTP1 | ServerFlags::HTTP2).unwrap();
+	let mut builder = SslAcceptor::mozilla_modern(SslMethod::tls()).unwrap_or_else(|_err| {
+		println!("[Fatal]: Unable to create OpenSSL builder!");
+		process::exit(1);
+	});
+	builder.set_private_key_file("ssl/key.pem", SslFiletype::PEM).unwrap_or_else(|_err| {
+		println!("[Fatal]: Unable to load ssl/key.pem!");
+		process::exit(1);
+	});
+	builder.set_certificate_chain_file("ssl/cert.pem").unwrap_or_else(|_err| {
+		println!("[Fatal]: Unable to load ssl/cert.pem!");
+		process::exit(1);
+	});
+	let acceptor = OpensslAcceptor::with_flags(builder, ServerFlags::HTTP1 | ServerFlags::HTTP2).unwrap_or_else(|_err| {
+		println!("[Fatal]: Unable to create OpenSSL acceptor!");
+		process::exit(1);
+	});
 
     server::new(|| {
         vec![
@@ -135,8 +143,14 @@ fn main() {
 		.keep_alive(config["streamTimeout"].as_usize().unwrap_or(0)*4)
 		.shutdown_timeout(config["streamTimeout"].as_u16().unwrap_or(10))
 		.bind_with(["[::]:".to_string(), config["advanced"]["tlsPort"].as_u16().unwrap_or(443).to_string()].concat(), acceptor)
-        .unwrap()
+		.unwrap_or_else(|_err| {
+			println!("{}", ["[Fatal]: Unable to bind to port ".to_string(), config["advanced"]["tlsPort"].as_u16().unwrap_or(443).to_string(), "!".to_string()].concat());
+			process::exit(1);
+		})
 		.bind(["[::]:".to_string(), config["advanced"]["httpPort"].as_u16().unwrap_or(80).to_string()].concat())
-		.unwrap()
+		.unwrap_or_else(|_err| {
+			println!("{}", ["[Fatal]: Unable to bind to port ".to_string(), config["advanced"]["httpPort"].as_u16().unwrap_or(80).to_string(), "!".to_string()].concat());
+			process::exit(1);
+		})
         .run();
 }
