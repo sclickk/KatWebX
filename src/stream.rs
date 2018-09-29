@@ -1,5 +1,5 @@
-// Copied from actix-web::fs, with minor modifications.
-// Original source: https://actix.rs/api/actix-web/stable/src/actix_web/fs.rs.html#485-534
+// Copied from actix-web::fs, with minor modifications. Actix Copyright (c) 2017 Nikolay Kim
+// Original source: https://github.com/actix/actix-web/blob/v0.7.8/src/fs.rs#L477-L527 (Commit hash 1716380f0890a1e936d84181effeb63906c1e609)
 extern crate futures;
 extern crate futures_cpupool;
 extern crate actix_web;
