@@ -43,7 +43,7 @@ fn get_mime(data: &Vec<u8>, path: &str) -> String {
 }
 
 lazy_static! {
-	static ref confraw: String = fs::read_to_string("conf.json").unwrap_or("{\"cachingTimeout\": 4,\"streamTimeout\": 10,\"hide\": [\"src\"],\"advanced\": {\"protect\": true,\"httpPort\": 80,\"tlsPort\": 443}}".to_string());
+	static ref confraw: String = fs::read_to_string("conf.json").unwrap_or("{\"cachingTimeout\": 4,\"hide\": [\"src\"],\"advanced\": {\"protect\": true,\"httpPort\": 80,\"tlsPort\": 443}}".to_string());
 	static ref config: json::JsonValue<> = json::parse(&confraw).unwrap_or_else(|_err| {
 		println!("[Fatal]: Unable to parse configuration!");
 		process::exit(1);
@@ -161,7 +161,6 @@ fn main() {
 		]
 	})
 		.keep_alive(config["streamTimeout"].as_usize().unwrap_or(0)*4)
-		.shutdown_timeout(config["streamTimeout"].as_u16().unwrap_or(10))
 		.bind_with(["[::]:".to_string(), config["advanced"]["tlsPort"].as_u16().unwrap_or(443).to_string()].concat(), acceptor)
 		.unwrap_or_else(|_err| {
 			println!("{}", ["[Fatal]: Unable to bind to port ".to_string(), config["advanced"]["tlsPort"].as_u16().unwrap_or(443).to_string(), "!".to_string()].concat());
