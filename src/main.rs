@@ -8,20 +8,17 @@ extern crate mime;
 extern crate mime_guess;
 extern crate mime_sniffer;
 extern crate json;
-use actix_web::{server, server::ServerFlags, App, HttpRequest, HttpResponse, AsyncResponder, Error, Body, http::StatusCode, server::OpensslAcceptor};
+mod stream;
+use actix_web::{server, server::ServerFlags, App, HttpRequest, HttpResponse, AsyncResponder, Error, http::StatusCode, http::header, http::Method, server::OpensslAcceptor};
 use openssl::ssl::{SslMethod, SslAcceptor, SslFiletype};
 use futures::future::{Future, result};
-use bytes::Bytes;
-use futures::stream::once;
-use std::{process, cmp, fs, fs::File, io::Read, path::Path};
+use std::{process, cmp, fs, fs::File, path::Path, io::Read};
 use mime_sniffer::MimeTypeSniffer;
 
-fn read_file(path: &str) -> Result<Vec<u8>, Error> {
-	let mut f = File::open(path)?;
-	let mut buffer = Vec::new();
-	f.read_to_end(&mut buffer)?;
-
-	return Ok(buffer)
+fn open_meta(path: &str) -> Result<(fs::File, fs::Metadata), Error> {
+	let f = File::open(path)?;
+	let m =  f.metadata()?;
+	return Ok((f, m));
 }
 
 fn get_mime(data: &Vec<u8>, path: &str) -> String {
@@ -54,6 +51,15 @@ lazy_static! {
 }
 
 fn index(_req: &HttpRequest) -> Box<Future<Item=HttpResponse, Error=Error>> {
+	if _req.method() != Method::GET && _req.method() != Method::HEAD {
+		return result(Ok(
+			HttpResponse::Ok()
+				.status(StatusCode::METHOD_NOT_ALLOWED)
+				.content_type("text/plain")
+				.body("405 Method Not Allowed")))
+				.responder();
+	}
+
 	let mut pathd = [_req.path()].concat();
 	if pathd.ends_with("/") {
 		pathd = [pathd, "index.html".to_string()].concat();
@@ -79,36 +85,50 @@ fn index(_req: &HttpRequest) -> Box<Future<Item=HttpResponse, Error=Error>> {
 				.responder();
 	}
 
-	let f = read_file(&[host, path].concat()).unwrap_or("404".as_bytes().to_vec());
-	if f == "404".as_bytes() {
-		return result(Ok(
-			HttpResponse::Ok()
-				.status(StatusCode::NOT_FOUND)
-				.content_type("text/plain")
-				.body("404 Not Found")))
-				.responder();
+	let (mut f, finfo);
+
+	match open_meta(&[host, path].concat()) {
+		Ok((fi, m)) => {f = fi; finfo = m},
+		Err(_) => {
+			return result(Ok(
+				HttpResponse::Ok()
+					.status(StatusCode::NOT_FOUND)
+					.content_type("text/plain")
+					.body("404 Not Found")))
+					.responder();
+		}
 	}
 
-	let sniffer_data = &f[0..cmp::min(512, f.len())].to_vec();
-	let body = once(Ok(Bytes::from(f)));
+	let mut sniffer_data = vec![0; cmp::min(512, finfo.len() as usize)];
+	f.read_exact(&mut sniffer_data).unwrap_or(());
+
+	let reader = stream::ChunkedReadFile {
+		offset: 0,
+		size: finfo.len(),
+		cpu_pool: _req.cpu_pool().clone(),
+		file: Some(f),
+		fut: None,
+		counter: 0,
+	};
+
 	let cache_int = config["cachingTimeout"].as_i64().unwrap_or(0);
 	result(Ok(
 		HttpResponse::Ok()
-	        .content_type(get_mime(sniffer_data, &[host, path].concat()))
+	        .content_type(get_mime(&sniffer_data, &[host, path].concat()))
 			.if_true(cache_int == 0, |builder| {
-				builder.header("Cache-Control", "no-store, must-revalidate");
+				builder.header(header::CACHE_CONTROL, "no-store, must-revalidate");
 			})
 			.if_true(cache_int != 0, |builder| {
-				builder.header("Cache-Control", ["max-age=".to_string(), (cache_int*3600).to_string(), ", public, stale-while-revalidate=".to_string(), (cache_int*900).to_string()].concat());
+				builder.header(header::CACHE_CONTROL, ["max-age=".to_string(), (cache_int*3600).to_string(), ", public, stale-while-revalidate=".to_string(), (cache_int*900).to_string()].concat());
 			})
 			.if_true(config["advanced"]["protect"].as_bool().unwrap_or(false), |builder| {
-				builder.header("Referrer-Policy", "no-referrer");
-				builder.header("X-Content-Type-Options", "nosniff");
-				builder.header("Content-Security-Policy", "default-src https: data: 'unsafe-inline' 'unsafe-eval' 'self'; frame-ancestors 'self'");
-				builder.header("X-XSS-Protection", "1; mode=block");
+				builder.header(header::REFERRER_POLICY, "no-referrer");
+				builder.header(header::X_CONTENT_TYPE_OPTIONS, "nosniff");
+				builder.header(header::CONTENT_SECURITY_POLICY, "default-src https: data: 'unsafe-inline' 'unsafe-eval' 'self'; frame-ancestors 'self'");
+				builder.header(header::X_XSS_PROTECTION, "1; mode=block");
 			})
-			.header("Server", "KatWebX-Alpha")
-            .body(Body::Streaming(Box::new(body)))))
+			.header(header::SERVER, "KatWebX-Alpha")
+            .streaming(reader)))
         	.responder()
 }
 
