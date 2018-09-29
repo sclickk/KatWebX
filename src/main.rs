@@ -21,6 +21,16 @@ fn open_meta(path: &str) -> Result<(fs::File, fs::Metadata), Error> {
 	return Ok((f, m));
 }
 
+fn redir(path: &str) -> Box<Future<Item=HttpResponse, Error=Error>> {
+	return result(Ok(
+		HttpResponse::Ok()
+			.status(StatusCode::PERMANENT_REDIRECT)
+			.header(header::LOCATION, path)
+			.content_type("text/html; charset=utf-8")
+			.body(["<a href='", path, "'>Click here</a>"].concat())))
+			.responder();
+}
+
 fn get_mime(data: &Vec<u8>, path: &str) -> String {
 	let mut mime = mime_guess::guess_mime_type(path).to_string();
 	if mime == "application/octet-stream" {
@@ -43,7 +53,7 @@ fn get_mime(data: &Vec<u8>, path: &str) -> String {
 }
 
 lazy_static! {
-	static ref confraw: String = fs::read_to_string("conf.json").unwrap_or("{\"cachingTimeout\": 4,\"hide\": [\"src\"],\"advanced\": {\"protect\": true,\"httpPort\": 80,\"tlsPort\": 443}}".to_string());
+	static ref confraw: String = fs::read_to_string("conf.json").unwrap_or("{\"cachingTimeout\": 4,\"hide\": [\"src\"],\"advanced\": {\"protect\": true,\"httpAddr\": \"[::]:80\",\"tlsAddr\": \"[::]:443\"}}".to_string());
 	static ref config: json::JsonValue<> = json::parse(&confraw).unwrap_or_else(|_err| {
 		println!("[Fatal]: Unable to parse configuration!");
 		process::exit(1);
@@ -55,7 +65,7 @@ fn index(_req: &HttpRequest) -> Box<Future<Item=HttpResponse, Error=Error>> {
 		return result(Ok(
 			HttpResponse::Ok()
 				.status(StatusCode::METHOD_NOT_ALLOWED)
-				.content_type("text/plain")
+				.content_type("text/plain; charset=utf-8")
 				.body("405 Method Not Allowed")))
 				.responder();
 	}
@@ -63,6 +73,8 @@ fn index(_req: &HttpRequest) -> Box<Future<Item=HttpResponse, Error=Error>> {
 	let mut pathd = [_req.path()].concat();
 	if pathd.ends_with("/") {
 		pathd = [pathd, "index.html".to_string()].concat();
+	} else if pathd.ends_with("/index.html") {
+		return redir("./");
 	}
 	let path = &pathd;
 
@@ -80,7 +92,7 @@ fn index(_req: &HttpRequest) -> Box<Future<Item=HttpResponse, Error=Error>> {
 		return result(Ok(
 			HttpResponse::Ok()
 				.status(StatusCode::FORBIDDEN)
-				.content_type("text/plain")
+				.content_type("text/plain; charset=utf-8")
 				.body("403 Forbidden")))
 				.responder();
 	}
@@ -93,7 +105,7 @@ fn index(_req: &HttpRequest) -> Box<Future<Item=HttpResponse, Error=Error>> {
 			return result(Ok(
 				HttpResponse::Ok()
 					.status(StatusCode::NOT_FOUND)
-					.content_type("text/plain")
+					.content_type("text/plain; charset=utf-8")
 					.body("404 Not Found")))
 					.responder();
 		}
@@ -161,14 +173,14 @@ fn main() {
 		]
 	})
 		.keep_alive(config["streamTimeout"].as_usize().unwrap_or(0)*4)
-		.bind_with(["[::]:".to_string(), config["advanced"]["tlsPort"].as_u16().unwrap_or(443).to_string()].concat(), acceptor)
+		.bind_with(config["advanced"]["tlsAddr"].as_str().unwrap_or("[::]:443"), acceptor)
 		.unwrap_or_else(|_err| {
-			println!("{}", ["[Fatal]: Unable to bind to port ".to_string(), config["advanced"]["tlsPort"].as_u16().unwrap_or(443).to_string(), "!".to_string()].concat());
+			println!("{}", ["[Fatal]: Unable to bind to ".to_string(), config["advanced"]["tlsAddr"].as_str().unwrap_or("[::]:443").to_string(), "!".to_string()].concat());
 			process::exit(1);
 		})
-		.bind(["[::]:".to_string(), config["advanced"]["httpPort"].as_u16().unwrap_or(80).to_string()].concat())
+		.bind(config["advanced"]["httpAddr"].as_str().unwrap_or("[::]:80"))
 		.unwrap_or_else(|_err| {
-			println!("{}", ["[Fatal]: Unable to bind to port ".to_string(), config["advanced"]["httpPort"].as_u16().unwrap_or(80).to_string(), "!".to_string()].concat());
+			println!("{}", ["[Fatal]: Unable to bind to ".to_string(), config["advanced"]["httpAddr"].as_str().unwrap_or("[::]:80").to_string(), "!".to_string()].concat());
 			process::exit(1);
 		})
         .run();
