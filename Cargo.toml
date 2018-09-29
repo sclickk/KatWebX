@@ -9,7 +9,10 @@ futures = "*"
 mime = "*"
 mime_guess = "*"
 mime-sniffer = "*"
-bytes = "*"
+htmlescape = "*"
+percent-encoding = "*"
 lazy_static = "*"
+bytes = "*"
+futures-cpupool = "*"
 openssl = { version = "*", features = ["vendored"] }
 actix-web = { version = "*", features = ["alpn", "brotli"] }
