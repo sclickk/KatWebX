@@ -1,6 +1,8 @@
 [package]
 name = "katweb"
 version = "0.1.0"
+license = "MIT"
+homepage = "https://github.com/kittyhacker101/KatWebX"
 authors = ["kittyhacker101 <kittyhacker101@protonmail.com>"]
 
 [dependencies]
@@ -12,5 +14,9 @@ mime-sniffer = "*"
 lazy_static = "*"
 bytes = "*"
 futures-cpupool = "*"
+htmlescape = "*"
 openssl = { version = "*", features = ["vendored"] }
-actix-web = { version = "*", features = ["alpn", "brotli"] }
+actix-web = { version = "*", features = ["alpn"] }
+
+[profile.release]
+lto = true
