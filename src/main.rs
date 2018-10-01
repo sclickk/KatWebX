@@ -63,7 +63,7 @@ lazy_static! {
 
 fn index(_req: &HttpRequest) -> Box<Future<Item=HttpResponse, Error=Error>> {
 	if _req.method() != Method::GET && _req.method() != Method::HEAD {
-		return ui::http_error(StatusCode::METHOD_NOT_ALLOWED, "405 Method Not Allowed", "Only GET and HEAD methods are supported for this resource.")
+		return ui::http_error(StatusCode::METHOD_NOT_ALLOWED, "405 Method Not Allowed", "Only GET and HEAD methods are supported.")
 	}
 
 	let mut pathd = [_req.path()].concat();
@@ -76,7 +76,7 @@ fn index(_req: &HttpRequest) -> Box<Future<Item=HttpResponse, Error=Error>> {
 
 	let conn_info = _req.connection_info();
 	let mut host = conn_info.host();
-	if host == "ssl" || host.len() < 1 || host[0..1] == ".".to_string() || host.contains("/") || host.contains("\\") || config["hide"].contains(host) {
+	if host == "ssl" || host.len() < 1 || host[..1] == ".".to_string() || host.contains("/") || host.contains("\\") || config["hide"].contains(host) {
 		host = "html"
 	}
 	println!("{:?}",[host, path].concat());
@@ -94,10 +94,10 @@ fn index(_req: &HttpRequest) -> Box<Future<Item=HttpResponse, Error=Error>> {
 		Ok((fi, m)) => {f = fi; finfo = m},
 		Err(_) => {
 			if path.ends_with("/index.html") {
-				return ui::dir_listing(&[host, _req.path()].concat())
+				return ui::dir_listing(&[host, _req.path()].concat(), host)
 			}
 
-			return ui::http_error(StatusCode::NOT_FOUND, "404 Not Found", "The requested resource could not be found but may be available in the future.")
+			return ui::http_error(StatusCode::NOT_FOUND, "404 Not Found", &["The resource ", _req.path(), " could not be found."].concat())
 		}
 	}
 
