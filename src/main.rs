@@ -9,10 +9,11 @@ extern crate mime_guess;
 extern crate mime_sniffer;
 extern crate json;
 mod stream;
+mod ui;
 use actix_web::{server, server::ServerFlags, App, HttpRequest, HttpResponse, AsyncResponder, Error, http::StatusCode, http::header, http::Method, server::OpensslAcceptor};
 use openssl::ssl::{SslMethod, SslAcceptor, SslFiletype};
 use futures::future::{Future, result};
-use std::{process, cmp, fs, fs::File, path::Path, io::Read, borrow::Borrow};
+use std::{process, cmp, fs, fs::File, path::Path, io::Read};
 use mime_sniffer::MimeTypeSniffer;
 
 fn open_meta(path: &str) -> Result<(fs::File, fs::Metadata), Error> {
@@ -60,41 +61,9 @@ lazy_static! {
 	});
 }
 
-fn http_error(status: StatusCode, header: &str, body: &str) -> Box<Future<Item=HttpResponse, Error=Error>> {
-	return result(Ok(
-		HttpResponse::Ok()
-			.status(status)
-			.content_type("text/html; charset=utf-8")
-			.body(["<!DOCTYPE HTML><meta content='width=device-width,initial-scale=1,minimum-scale=1,maximum-scale=1' name=viewport><h1>", header, "</h1><p>", body, "</p>"].concat())))
-			.responder();
-}
-
-fn dir_listing(path: &str) -> Box<Future<Item=HttpResponse, Error=Error>> {
-	let f;
-
-	match fs::read_dir(path) {
-		Ok(fi) => {f = fi},
-		Err(_) => {
-			return http_error(StatusCode::NOT_FOUND, "404 Not Found", "The requested resource could not be found but may be available in the future.")
-		}
-	}
-
-	let mut html = ["<!DOCTYPE HTML><meta content='width=device-width,initial-scale=1,minimum-scale=1,maximum-scale=1' name=viewport><h1>", path, "</h1>"].concat();
-	for fpath in f {
-		let fstr = fpath.unwrap().path();
-		html = [&html, "<a href=", fstr.to_string_lossy().borrow(), ">", fstr.to_string_lossy().borrow(), "</a></br>"].concat()
-	}
-
-	return result(Ok(
-		HttpResponse::Ok()
-			.content_type("text/html; charset=utf-8")
-			.body(html)))
-			.responder();
-}
-
 fn index(_req: &HttpRequest) -> Box<Future<Item=HttpResponse, Error=Error>> {
 	if _req.method() != Method::GET && _req.method() != Method::HEAD {
-		return http_error(StatusCode::METHOD_NOT_ALLOWED, "405 Method Not Allowed", "Only GET and HEAD methods are supported for this resource.")
+		return ui::http_error(StatusCode::METHOD_NOT_ALLOWED, "405 Method Not Allowed", "Only GET and HEAD methods are supported for this resource.")
 	}
 
 	let mut pathd = [_req.path()].concat();
@@ -116,7 +85,7 @@ fn index(_req: &HttpRequest) -> Box<Future<Item=HttpResponse, Error=Error>> {
 	}
 
 	if path.contains("..") {
-		return http_error(StatusCode::FORBIDDEN, "403 Forbidden", "You do not have permission to access this resource.")
+		return ui::http_error(StatusCode::FORBIDDEN, "403 Forbidden", "You do not have permission to access this resource.")
 	}
 
 	let (mut f, finfo);
@@ -125,10 +94,10 @@ fn index(_req: &HttpRequest) -> Box<Future<Item=HttpResponse, Error=Error>> {
 		Ok((fi, m)) => {f = fi; finfo = m},
 		Err(_) => {
 			if path.ends_with("/index.html") {
-				return dir_listing(&[host, _req.path()].concat())
+				return ui::dir_listing(&[host, _req.path()].concat())
 			}
 
-			return http_error(StatusCode::NOT_FOUND, "404 Not Found", "The requested resource could not be found but may be available in the future.")
+			return ui::http_error(StatusCode::NOT_FOUND, "404 Not Found", "The requested resource could not be found but may be available in the future.")
 		}
 	}
 
