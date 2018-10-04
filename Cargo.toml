@@ -15,6 +15,7 @@ lazy_static = "*"
 bytes = "*"
 futures-cpupool = "*"
 htmlescape = "*"
+number_prefix = "*"
 openssl = { version = "*", features = ["vendored"] }
 actix-web = { version = "*", features = ["alpn"] }
 
