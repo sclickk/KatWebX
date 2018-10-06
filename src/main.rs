@@ -50,15 +50,25 @@ fn get_mime(data: &Vec<u8>, path: &str) -> String {
 	return mime
 }
 
+fn sort_json(array: &json::Array) -> Vec<String> {
+	let mut tmp = Vec::new();
+	for item in array {
+		tmp.push(item.as_str().unwrap_or("").to_string())
+	}
+	tmp.sort_unstable();
+	return tmp
+}
+
 lazy_static! {
 	static ref confraw: String = fs::read_to_string("conf.json").unwrap_or("{\"cachingTimeout\": 4,\"hide\": [\"src\"],\"advanced\": {\"protect\": true,\"httpAddr\": \"[::]:80\",\"tlsAddr\": \"[::]:443\"}}".to_string());
 	static ref config: json::JsonValue<> = json::parse(&confraw).unwrap_or_else(|_err| {
 		println!("[Fatal]: Unable to parse configuration!");
 		process::exit(1);
 	});
-	//static ref hidden: []String = {if config["hide"].is_array() {
-	//
-	//} else {return }}
+	static ref hidden: Vec<String> = match &config["hide"] {
+		json::JsonValue::Array(array) => sort_json(array),
+		_ => Vec::new(),
+	};
 }
 
 fn index(_req: &HttpRequest) -> Box<Future<Item=HttpResponse, Error=Error>> {
@@ -76,7 +86,7 @@ fn index(_req: &HttpRequest) -> Box<Future<Item=HttpResponse, Error=Error>> {
 
 	let conn_info = _req.connection_info();
 	let mut host = conn_info.host();
-	if host == "ssl" || host.len() < 1 || host[..1] == ".".to_string() || host.contains("/") || host.contains("\\") || config["hide"].contains(host) {
+	if host == "ssl" || host.len() < 1 || host[..1] == ".".to_string() || host.contains("/") || host.contains("\\") || hidden.binary_search(&host.to_string()).is_ok() {
 		host = "html"
 	}
 	println!("{:?}",[host, path].concat());
