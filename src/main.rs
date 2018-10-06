@@ -38,16 +38,13 @@ fn get_mime(data: &Vec<u8>, path: &str) -> String {
 		let mreq = mime_sniffer::HttpRequest {
 			content: data,
 			url: &["http://localhost", path].concat(),
-			type_hint: "unknown/unknown",
+			type_hint: "",
 		};
 
-		mime = mreq.sniff_mime_type().unwrap_or("text/plain; charset=utf-8").to_string();
-	}
-	if mime == "unknown/unknown" {
-		mime = "application/octet-stream".to_string()
+		mime = mreq.sniff_mime_type().unwrap_or("").to_string();
 	}
 	if mime.starts_with("text/") && !mime.contains("charset") {
-		mime = [mime, "; charset=utf-8".to_string()].concat();
+		return [mime, "; charset=utf-8".to_string()].concat();
 	}
 
 	return mime
@@ -59,6 +56,9 @@ lazy_static! {
 		println!("[Fatal]: Unable to parse configuration!");
 		process::exit(1);
 	});
+	//static ref hidden: []String = {if config["hide"].is_array() {
+	//
+	//} else {return }}
 }
 
 fn index(_req: &HttpRequest) -> Box<Future<Item=HttpResponse, Error=Error>> {
