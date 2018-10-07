@@ -13,7 +13,7 @@ mod ui;
 use actix_web::{server, server::ServerFlags, App, HttpRequest, HttpResponse, AsyncResponder, Error, http::StatusCode, http::header, http::Method, server::OpensslAcceptor};
 use openssl::ssl::{SslMethod, SslAcceptor, SslFiletype};
 use futures::future::{Future, result};
-use std::{process, cmp, fs, fs::File, path::Path, io::Read};
+use std::{process, cmp, fs, fs::File, path::Path, io::Read, collections::HashMap};
 use mime_sniffer::MimeTypeSniffer;
 
 fn open_meta(path: &str) -> Result<(fs::File, fs::Metadata), Error> {
@@ -50,24 +50,46 @@ fn get_mime(data: &Vec<u8>, path: &str) -> String {
 	return mime
 }
 
-fn sort_json(array: &json::Array) -> Vec<String> {
+fn sort_json(array: &json::Array, attr: &str) -> Vec<String> {
 	let mut tmp = Vec::new();
 	for item in array {
-		tmp.push(item.as_str().unwrap_or("").to_string())
+		if attr == "" {
+			tmp.push(item.as_str().unwrap_or("").to_string())
+		} else {
+			tmp.push(item[attr].as_str().unwrap_or("").to_string())
+		}
 	}
 	tmp.sort_unstable();
+	println!("{:?}", tmp);
+	return tmp
+}
+
+fn map_json(array: &json::Array, attr1: &str, attr2: &str) -> HashMap<String, String> {
+	let mut tmp = HashMap::new();
+	for item in array {
+		tmp.insert(item[attr1].as_str().unwrap_or("").to_string(), item[attr2].as_str().unwrap_or("").to_string());
+	}
+	println!("{:?}", tmp);
 	return tmp
 }
 
 lazy_static! {
-	static ref confraw: String = fs::read_to_string("conf.json").unwrap_or("{\"cachingTimeout\": 4,\"hide\": [\"src\"],\"advanced\": {\"protect\": true,\"httpAddr\": \"[::]:80\",\"tlsAddr\": \"[::]:443\"}}".to_string());
+	static ref confraw: String = fs::read_to_string("conf.json").unwrap_or(r#"{"cachingTimeout": 4,"redir": [{"location": "localhost/redir", "dest": "https://kittyhacker101.tk"}],"hide": ["src"],"advanced": {"protect": true,"httpAddr": "[::]:80","tlsAddr": "[::]:443"}}"#.to_string());
 	static ref config: json::JsonValue<> = json::parse(&confraw).unwrap_or_else(|_err| {
 		println!("[Fatal]: Unable to parse configuration!");
 		process::exit(1);
 	});
 	static ref hidden: Vec<String> = match &config["hide"] {
-		json::JsonValue::Array(array) => sort_json(array),
+		json::JsonValue::Array(array) => sort_json(array, ""),
 		_ => Vec::new(),
+	};
+	static ref lredir: Vec<String> = match &config["redir"] {
+		json::JsonValue::Array(array) => sort_json(array, "location"),
+		_ => Vec::new(),
+	};
+	static ref redirmap: HashMap<String, String> = match &config["redir"] {
+		json::JsonValue::Array(array) => map_json(array, "location", "dest"),
+		_ => HashMap::new(),
 	};
 }
 
@@ -89,6 +111,13 @@ fn index(_req: &HttpRequest) -> Box<Future<Item=HttpResponse, Error=Error>> {
 	if host == "ssl" || host.len() < 1 || host[..1] == ".".to_string() || host.contains("/") || host.contains("\\") || hidden.binary_search(&host.to_string()).is_ok() {
 		host = "html"
 	}
+	if lredir.binary_search(&[host, path].concat()).is_ok() {
+		match redirmap.get(&[host, path].concat()) {
+			Some(link) => return redir(link),
+			_ => (),
+		};
+	}
+
 	println!("{:?}",[host, path].concat());
 	if !Path::new(host).exists() {
 		host = "html"
