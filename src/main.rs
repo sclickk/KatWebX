@@ -16,12 +16,29 @@ use futures::future::{Future, result};
 use std::{process, cmp, fs, fs::File, path::Path, io::Read, collections::HashMap};
 use mime_sniffer::MimeTypeSniffer;
 
+// Trim the port from an IPv4 address, IPv6 address, or domain:port.
+fn trim_port(path: &str) -> &str {
+	if path.contains("[") && path.contains("]:") {
+		match path.rfind("]:") {
+			Some(i) => return &path[0..i+1],
+			_ => return path,
+		}
+	}
+
+	match path.rfind(":") {
+		Some(i) => return &path[0..i],
+		_ => return path,
+	}
+}
+
+// Open both a file, and the file's metadata.
 fn open_meta(path: &str) -> Result<(fs::File, fs::Metadata), Error> {
 	let f = File::open(path)?;
 	let m =  f.metadata()?;
 	return Ok((f, m));
 }
 
+// Do a HTTP permanent redirect.
 fn redir(path: &str) -> Box<Future<Item=HttpResponse, Error=Error>> {
 	return result(Ok(
 		HttpResponse::Ok()
@@ -32,6 +49,7 @@ fn redir(path: &str) -> Box<Future<Item=HttpResponse, Error=Error>> {
 			.responder();
 }
 
+// Guess the MIME type based on file extension. If the file extension is not known, attempt to guess the mime type.
 fn get_mime(data: &Vec<u8>, path: &str) -> String {
 	let mut mime = mime_guess::guess_mime_type(path).to_string();
 	if mime == "application/octet-stream" {
@@ -50,6 +68,7 @@ fn get_mime(data: &Vec<u8>, path: &str) -> String {
 	return mime
 }
 
+// Turn a JSON array into a sorted Vec<String>.
 fn sort_json(array: &json::Array, attr: &str) -> Vec<String> {
 	let mut tmp = Vec::new();
 	for item in array {
@@ -64,6 +83,7 @@ fn sort_json(array: &json::Array, attr: &str) -> Vec<String> {
 	return tmp
 }
 
+// Turn a JSON array into a HashMap<String, String>.
 fn map_json(array: &json::Array, attr1: &str, attr2: &str) -> HashMap<String, String> {
 	let mut tmp = HashMap::new();
 	for item in array {
@@ -73,6 +93,7 @@ fn map_json(array: &json::Array, attr1: &str, attr2: &str) -> HashMap<String, St
 	return tmp
 }
 
+// Global constants generated at runtime.
 lazy_static! {
 	static ref confraw: String = fs::read_to_string("conf.json").unwrap_or(r#"{"cachingTimeout": 4,"redir": [{"location": "localhost/redir", "dest": "https://kittyhacker101.tk"}],"hide": ["src"],"advanced": {"protect": true,"httpAddr": "[::]:80","tlsAddr": "[::]:443"}}"#.to_string());
 	static ref config: json::JsonValue<> = json::parse(&confraw).unwrap_or_else(|_err| {
@@ -93,6 +114,7 @@ lazy_static! {
 	};
 }
 
+// HTTP(S) request handling.
 fn index(_req: &HttpRequest) -> Box<Future<Item=HttpResponse, Error=Error>> {
 	if _req.method() != Method::GET && _req.method() != Method::HEAD {
 		return ui::http_error(StatusCode::METHOD_NOT_ALLOWED, "405 Method Not Allowed", "Only GET and HEAD methods are supported.")
@@ -107,7 +129,7 @@ fn index(_req: &HttpRequest) -> Box<Future<Item=HttpResponse, Error=Error>> {
 	let path = &pathd;
 
 	let conn_info = _req.connection_info();
-	let mut host = conn_info.host();
+	let mut host = trim_port(conn_info.host());
 	if host == "ssl" || host.len() < 1 || host[..1] == ".".to_string() || host.contains("/") || host.contains("\\") || hidden.binary_search(&host.to_string()).is_ok() {
 		host = "html"
 	}
@@ -177,7 +199,12 @@ fn index(_req: &HttpRequest) -> Box<Future<Item=HttpResponse, Error=Error>> {
         	.responder()
 }
 
+// Load configuration, SSL certs, then attempt to start the program.
 fn main() {
+	lazy_static::initialize(&hidden);
+	lazy_static::initialize(&lredir);
+	lazy_static::initialize(&redirmap);
+
 	fs::write("conf.json", config.pretty(2)).unwrap_or_else(|_err| {
 		println!("[Warn]: Unable to write configuration!");
 	});

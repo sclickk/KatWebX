@@ -1,3 +1,5 @@
+// Ui.rs is responsible for creating all server-generated content (error pages, file listings, etc...)
+// Most of this should be rewritten before KatWebX's final release.
 extern crate actix_web;
 extern crate htmlescape;
 extern crate number_prefix;
