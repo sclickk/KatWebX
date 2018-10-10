@@ -16,17 +16,50 @@ use futures::future::{Future, result};
 use std::{process, cmp, fs, fs::File, path::Path, io::Read, collections::HashMap};
 use mime_sniffer::MimeTypeSniffer;
 
+// Generate the correct host and path, from the raw data.
+fn handle_path(mut path: String, mut host: String) -> (String, String) {
+	host = trim_port(host);
+
+	match path {
+		_ if path.ends_with("/index.html") => return ("./".to_owned(), "redir".to_owned()),
+		_ if path.contains("..") => return ("..".to_owned(), "redir".to_owned()),
+		_ if path.ends_with("/") => path.push_str("index.html"),
+		_ => (),
+	}
+
+	if host == "ssl" || host.len() < 1 || host[..1] == ".".to_owned() || host == "redir" || host.contains("/") || host.contains("\\") || hidden.binary_search(&host.to_owned()).is_ok() {
+		host = "html".to_string()
+	}
+
+	let full_path = &[&*host, &*path].concat();
+
+	if lredir.binary_search(full_path).is_ok() {
+		match redirmap.get(full_path) {
+			Some(link) => return (link.to_string(), "redir".to_string()),
+			_ => (),
+		};
+	}
+
+	if !Path::new(&host).exists() {
+		host = "html".to_string()
+	}
+
+	println!("{:?}", full_path);
+
+	return (path, host)
+}
+
 // Trim the port from an IPv4 address, IPv6 address, or domain:port.
-fn trim_port(path: &str) -> &str {
+fn trim_port(path: String) -> String {
 	if path.contains("[") && path.contains("]:") {
 		match path.rfind("]:") {
-			Some(i) => return &path[0..i+1],
+			Some(i) => return path[0..i+1].to_string(),
 			_ => return path,
 		}
 	}
 
 	match path.rfind(":") {
-		Some(i) => return &path[0..i],
+		Some(i) => return path[0..i].to_string(),
 		_ => return path,
 	}
 }
@@ -95,7 +128,7 @@ fn map_json(array: &json::Array, attr1: &str, attr2: &str) -> HashMap<String, St
 
 // Global constants generated at runtime.
 lazy_static! {
-	static ref confraw: String = fs::read_to_string("conf.json").unwrap_or(r#"{"cachingTimeout": 4,"redir": [{"location": "localhost/redir", "dest": "https://kittyhacker101.tk"}],"hide": ["src"],"advanced": {"protect": true,"httpAddr": "[::]:80","tlsAddr": "[::]:443"}}"#.to_string());
+	static ref confraw: String = fs::read_to_string("conf.json").unwrap_or(r#"{"cachingTimeout":4,"proxy":[{"location":"localhost/proxy","host":"https://kittyhacker101.tk"}],"redir":[{"location":"localhost/redir","dest":"https://kittyhacker101.tk"}],"hide":["src"],"advanced":{"protect":true,"httpAddr":"[::]:80","tlsAddr":"[::]:443"}}"#.to_string());
 	static ref config: json::JsonValue<> = json::parse(&confraw).unwrap_or_else(|_err| {
 		println!("[Fatal]: Unable to parse configuration!");
 		process::exit(1);
@@ -112,6 +145,14 @@ lazy_static! {
 		json::JsonValue::Array(array) => map_json(array, "location", "dest"),
 		_ => HashMap::new(),
 	};
+	static ref lproxy: Vec<String> = match &config["proxy"] {
+		json::JsonValue::Array(array) => sort_json(array, "location"),
+		_ => Vec::new(),
+	};
+	static ref proxymap: HashMap<String, String> = match &config["proxy"] {
+		json::JsonValue::Array(array) => map_json(array, "location", "host"),
+		_ => HashMap::new(),
+	};
 }
 
 // HTTP(S) request handling.
@@ -120,42 +161,24 @@ fn index(_req: &HttpRequest) -> Box<Future<Item=HttpResponse, Error=Error>> {
 		return ui::http_error(StatusCode::METHOD_NOT_ALLOWED, "405 Method Not Allowed", "Only GET and HEAD methods are supported.")
 	}
 
-	let mut pathd = [_req.path()].concat();
-	if pathd.ends_with("/") {
-		pathd = [pathd, "index.html".to_string()].concat();
-	} else if pathd.ends_with("/index.html") {
-		return redir("./");
-	}
-	let path = &pathd;
-
 	let conn_info = _req.connection_info();
-	let mut host = trim_port(conn_info.host());
-	if host == "ssl" || host.len() < 1 || host[..1] == ".".to_string() || host.contains("/") || host.contains("\\") || hidden.binary_search(&host.to_string()).is_ok() {
-		host = "html"
-	}
-	if lredir.binary_search(&[host, path].concat()).is_ok() {
-		match redirmap.get(&[host, path].concat()) {
-			Some(link) => return redir(link),
-			_ => (),
-		};
+	let (path, host) = handle_path(_req.path().to_string(), conn_info.host().to_string());
+	if host == "redir" {
+		if path == "forbid" {
+			return ui::http_error(StatusCode::FORBIDDEN, "403 Forbidden", "You do not have permission to access this resource.")
+		}
+		redir(&path);
 	}
 
-	println!("{:?}",[host, path].concat());
-	if !Path::new(host).exists() {
-		host = "html"
-	}
 
-	if path.contains("..") {
-		return ui::http_error(StatusCode::FORBIDDEN, "403 Forbidden", "You do not have permission to access this resource.")
-	}
 
 	let (mut f, finfo);
 
-	match open_meta(&[host, path].concat()) {
+	match open_meta(&[&*host, &*path].concat()) {
 		Ok((fi, m)) => {f = fi; finfo = m},
 		Err(_) => {
 			if path.ends_with("/index.html") {
-				return ui::dir_listing(&[host, _req.path()].concat(), host)
+				return ui::dir_listing(&[&*host, _req.path()].concat(), &host)
 			}
 
 			return ui::http_error(StatusCode::NOT_FOUND, "404 Not Found", &["The resource ", _req.path(), " could not be found."].concat())
@@ -181,7 +204,7 @@ fn index(_req: &HttpRequest) -> Box<Future<Item=HttpResponse, Error=Error>> {
 	let cache_int = config["cachingTimeout"].as_i64().unwrap_or(0);
 	result(Ok(
 		HttpResponse::Ok()
-	        .content_type(get_mime(&sniffer_data, &[host, path].concat()))
+	        .content_type(get_mime(&sniffer_data, &[&*host, &*path].concat()))
 			.if_true(cache_int == 0, |builder| {
 				builder.header(header::CACHE_CONTROL, "no-store, must-revalidate");
 			})
@@ -204,6 +227,8 @@ fn main() {
 	lazy_static::initialize(&hidden);
 	lazy_static::initialize(&lredir);
 	lazy_static::initialize(&redirmap);
+	lazy_static::initialize(&lproxy);
+	lazy_static::initialize(&proxymap);
 
 	fs::write("conf.json", config.pretty(2)).unwrap_or_else(|_err| {
 		println!("[Warn]: Unable to write configuration!");
