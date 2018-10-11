@@ -17,36 +17,34 @@ use std::{process, cmp, fs, fs::File, path::Path, io::Read, collections::HashMap
 use mime_sniffer::MimeTypeSniffer;
 
 // Generate the correct host and path, from the raw data.
-fn handle_path(mut path: String, mut host: String) -> (String, String) {
+fn handle_path(mut path: String, mut host: String) -> (String, String, Option<String>) {
 	host = trim_port(host);
 
 	match path {
-		_ if path.ends_with("/index.html") => return ("./".to_owned(), "redir".to_owned()),
-		_ if path.contains("..") => return ("..".to_owned(), "redir".to_owned()),
+		_ if path.ends_with("/index.html") => return ("./".to_owned(), "redir".to_owned(), None),
+		_ if path.contains("..") => return ("..".to_owned(), "redir".to_owned(), None),
 		_ if path.ends_with("/") => path.push_str("index.html"),
 		_ => (),
 	}
 
-	if host == "ssl" || host.len() < 1 || host[..1] == ".".to_owned() || host == "redir" || host.contains("/") || host.contains("\\") || hidden.binary_search(&host.to_owned()).is_ok() {
-		host = "html".to_string()
+	match host {
+	 	_ if host.len() < 1 || host[..1] == ".".to_owned() || host.contains("/") || host.contains("\\") => host = "html".to_string(),
+		_ if hidden.binary_search(&host.to_owned()).is_ok() => host = "html".to_string(),
+		_ if lredir.binary_search(&[&*host, &*path].concat()).is_ok() => {
+			match redirmap.get(&[&*host, &*path].concat()) {
+				Some(link) => return (link.to_string(), "redir".to_string(), None),
+				None => (),
+			};
+		},
+		_ if !Path::new(&host).exists() => host = "html".to_string(),
+		_ => (),
 	}
 
 	let full_path = &[&*host, &*path].concat();
 
-	if lredir.binary_search(full_path).is_ok() {
-		match redirmap.get(full_path) {
-			Some(link) => return (link.to_string(), "redir".to_string()),
-			_ => (),
-		};
-	}
-
-	if !Path::new(&host).exists() {
-		host = "html".to_string()
-	}
-
 	println!("{:?}", full_path);
 
-	return (path, host)
+	return (path, host, Some(full_path.to_string()))
 }
 
 // Trim the port from an IPv4 address, IPv6 address, or domain:port.
@@ -54,13 +52,13 @@ fn trim_port(path: String) -> String {
 	if path.contains("[") && path.contains("]:") {
 		match path.rfind("]:") {
 			Some(i) => return path[0..i+1].to_string(),
-			_ => return path,
+			None => return path,
 		}
 	}
 
 	match path.rfind(":") {
 		Some(i) => return path[0..i].to_string(),
-		_ => return path,
+		None => return path,
 	}
 }
 
@@ -134,7 +132,13 @@ lazy_static! {
 		process::exit(1);
 	});
 	static ref hidden: Vec<String> = match &config["hide"] {
-		json::JsonValue::Array(array) => sort_json(array, ""),
+		json::JsonValue::Array(array) => {
+			let mut tmp = sort_json(array, "");
+			tmp.push("ssl".to_string());
+			tmp.push("redir".to_string());
+			tmp.sort_unstable();
+			return tmp;
+		},
 		_ => Vec::new(),
 	};
 	static ref lredir: Vec<String> = match &config["redir"] {
@@ -157,12 +161,14 @@ lazy_static! {
 
 // HTTP(S) request handling.
 fn index(_req: &HttpRequest) -> Box<Future<Item=HttpResponse, Error=Error>> {
+	let conn_info = _req.connection_info();
+
+	let (path, host, fp) = handle_path(_req.path().to_string(), conn_info.host().to_string());
+
 	if _req.method() != Method::GET && _req.method() != Method::HEAD {
 		return ui::http_error(StatusCode::METHOD_NOT_ALLOWED, "405 Method Not Allowed", "Only GET and HEAD methods are supported.")
 	}
 
-	let conn_info = _req.connection_info();
-	let (path, host) = handle_path(_req.path().to_string(), conn_info.host().to_string());
 	if host == "redir" {
 		if path == "forbid" {
 			return ui::http_error(StatusCode::FORBIDDEN, "403 Forbidden", "You do not have permission to access this resource.")
@@ -170,11 +176,14 @@ fn index(_req: &HttpRequest) -> Box<Future<Item=HttpResponse, Error=Error>> {
 		redir(&path);
 	}
 
-
+	let full_path = match fp {
+		Some(pf) => pf,
+		None => [&*host, &*path].concat(),
+	};
 
 	let (mut f, finfo);
 
-	match open_meta(&[&*host, &*path].concat()) {
+	match open_meta(&full_path) {
 		Ok((fi, m)) => {f = fi; finfo = m},
 		Err(_) => {
 			if path.ends_with("/index.html") {
@@ -204,7 +213,7 @@ fn index(_req: &HttpRequest) -> Box<Future<Item=HttpResponse, Error=Error>> {
 	let cache_int = config["cachingTimeout"].as_i64().unwrap_or(0);
 	result(Ok(
 		HttpResponse::Ok()
-	        .content_type(get_mime(&sniffer_data, &[&*host, &*path].concat()))
+	        .content_type(get_mime(&sniffer_data, &full_path))
 			.if_true(cache_int == 0, |builder| {
 				builder.header(header::CACHE_CONTROL, "no-store, must-revalidate");
 			})
