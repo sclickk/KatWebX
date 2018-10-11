@@ -10,7 +10,7 @@ extern crate mime_sniffer;
 extern crate json;
 mod stream;
 mod ui;
-use actix_web::{server, server::ServerFlags, App, HttpRequest, HttpResponse, AsyncResponder, Error, http::StatusCode, http::header, http::Method, server::OpensslAcceptor};
+use actix_web::{server, App, HttpRequest, HttpResponse, AsyncResponder, Error, http::StatusCode, http::header, http::Method};
 use openssl::ssl::{SslMethod, SslAcceptor, SslFiletype};
 use futures::future::{Future, result};
 use std::{process, cmp, fs, fs::File, path::Path, io::Read, collections::HashMap};
@@ -216,6 +216,9 @@ fn index(_req: &HttpRequest) -> Box<Future<Item=HttpResponse, Error=Error>> {
 	result(Ok(
 		HttpResponse::Ok()
 	        .content_type(get_mime(&sniffer_data, &full_path))
+			//.if_true(let Some(ranges) = req.headers().get(header::RANGE), |builder| {
+			//
+			//})
 			.if_true(cache_int == 0, |builder| {
 				builder.header(header::CACHE_CONTROL, "no-store, must-revalidate");
 			})
@@ -257,11 +260,7 @@ fn main() {
 		println!("[Fatal]: Unable to load ssl/cert.pem!");
 		process::exit(1);
 	});
-	let acceptor = OpensslAcceptor::with_flags(builder, ServerFlags::HTTP1 | ServerFlags::HTTP2).unwrap_or_else(|_err| {
-		println!("[Fatal]: Unable to create OpenSSL acceptor!");
-		process::exit(1);
-	});
-
+	
     server::new(|| {
         vec![
 			App::new()
@@ -269,7 +268,7 @@ fn main() {
 		]
 	})
 		.keep_alive(config["streamTimeout"].as_usize().unwrap_or(0)*4)
-		.bind_with(config["advanced"]["tlsAddr"].as_str().unwrap_or("[::]:443"), acceptor)
+		.bind_ssl(config["advanced"]["tlsAddr"].as_str().unwrap_or("[::]:443"), builder)
 		.unwrap_or_else(|_err| {
 			println!("{}", ["[Fatal]: Unable to bind to ".to_string(), config["advanced"]["tlsAddr"].as_str().unwrap_or("[::]:443").to_string(), "!".to_string()].concat());
 			process::exit(1);
