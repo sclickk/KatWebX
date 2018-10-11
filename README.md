@@ -21,7 +21,7 @@ KatWebX is an early work in progress, and you will encounter bugs. **Do not use 
 - [ ] TLS 1.3 Support
 - [x] High peformance TLS 1.2
 
-# Possible features
+## Possible features
 - [ ] QUIC support
 - [ ] Let's encrypt integration
 - [ ] On-the-fly config reloading
