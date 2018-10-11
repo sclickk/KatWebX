@@ -16,14 +16,14 @@ KatWebX is an early work in progress, and you will encounter bugs. **Do not use 
 - [ ] Regex-based auth
 - [x] Fast file serving
 - [ ] Brotli file compression
-- [ ] HSTS
+- [ ] HSTS support
 - [ ] HTTP/2 and HTTP/1.1 support
-- [ ] TLS 1.3 Support
+- [ ] TLS 1.3 support
 - [x] High peformance TLS 1.2
 
 ## Possible Features
 - [ ] QUIC support
-- [ ] Let's encrypt integration
+- [ ] Let's Encrypt integration
 - [ ] On-the-fly config reloading
 - [ ] Caching proxy
 - [ ] Advanced load balancer
