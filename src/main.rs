@@ -27,11 +27,13 @@ fn handle_path(mut path: String, mut host: String) -> (String, String, Option<St
 		_ => (),
 	}
 
+	let fp = &[&*host, &*path].concat();
+
 	match host {
 	 	_ if host.len() < 1 || host[..1] == ".".to_owned() || host.contains("/") || host.contains("\\") => host = "html".to_string(),
 		_ if hidden.binary_search(&host.to_owned()).is_ok() => host = "html".to_string(),
-		_ if lredir.binary_search(&[&*host, &*path].concat()).is_ok() => {
-			match redirmap.get(&[&*host, &*path].concat()) {
+		_ if lredir.binary_search(fp).is_ok() => {
+			match redirmap.get(fp) {
 				Some(link) => return (link.to_string(), "redir".to_string(), None),
 				None => (),
 			};
@@ -40,9 +42,9 @@ fn handle_path(mut path: String, mut host: String) -> (String, String, Option<St
 		_ => (),
 	}
 
-	let full_path = &[&*host, &*path].concat();
+	println!("{:?}", fp);
 
-	println!("{:?}", full_path);
+	let full_path = &[&*host, &*path].concat();
 
 	return (path, host, Some(full_path.to_string()))
 }
