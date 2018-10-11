@@ -17,7 +17,7 @@ KatWebX is an early work in progress, and you will encounter bugs. **Do not use 
 - [x] Fast file serving
 - [ ] Brotli file compression
 - [ ] HSTS support
-- [ ] HTTP/2 and HTTP/1.1 support
+- [x] HTTP/2 and HTTP/1.1 support
 - [ ] TLS 1.3 support
 - [x] High peformance TLS 1.2
 
