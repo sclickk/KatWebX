@@ -10,7 +10,7 @@ extern crate mime_sniffer;
 extern crate json;
 mod stream;
 mod ui;
-use actix_web::{server, App, HttpRequest, HttpResponse, AsyncResponder, Error, http::StatusCode, http::header, http::Method};
+use actix_web::{server, App, HttpRequest, HttpResponse, AsyncResponder, Error, http::StatusCode, http::header, http::Method, http::header::HeaderValue, http::ContentEncoding};
 use openssl::ssl::{SslMethod, SslAcceptor, SslFiletype};
 use futures::future::{Future, result};
 use std::{process, cmp, fs, fs::File, path::Path, io::Read, collections::HashMap};
@@ -159,6 +159,7 @@ lazy_static! {
 		json::JsonValue::Array(array) => map_json(array, "location", "host"),
 		_ => HashMap::new(),
 	};
+	static ref blankheader: HeaderValue = HeaderValue::from_static("");
 }
 
 // HTTP(S) request handling.
@@ -203,9 +204,11 @@ fn index(_req: &HttpRequest) -> Box<Future<Item=HttpResponse, Error=Error>> {
 	let mut sniffer_data = vec![0; cmp::min(512, finfo.len() as usize)];
 	f.read_exact(&mut sniffer_data).unwrap_or(());
 
+	let (length, offset) = stream::calculate_ranges(_req, finfo.len());
+
 	let reader = stream::ChunkedReadFile {
-		offset: 0,
-		size: finfo.len(),
+		offset: offset,
+		size: length,
 		cpu_pool: _req.cpu_pool().clone(),
 		file: Some(f),
 		fut: None,
@@ -216,9 +219,11 @@ fn index(_req: &HttpRequest) -> Box<Future<Item=HttpResponse, Error=Error>> {
 	result(Ok(
 		HttpResponse::Ok()
 	        .content_type(get_mime(&sniffer_data, &full_path))
-			//.if_true(let Some(ranges) = req.headers().get(header::RANGE), |builder| {
-			//
-			//})
+			.header(header::ACCEPT_RANGES, "bytes")
+			.content_encoding(ContentEncoding::Identity)
+			.if_true(offset != 0, |builder| {
+				builder.header(header::CONTENT_RANGE, ["bytes ", &offset.to_string(), "-", &(offset+length-1).to_string(), "/", &finfo.len().to_string()].concat());
+			})
 			.if_true(cache_int == 0, |builder| {
 				builder.header(header::CACHE_CONTROL, "no-store, must-revalidate");
 			})
@@ -260,14 +265,14 @@ fn main() {
 		println!("[Fatal]: Unable to load ssl/cert.pem!");
 		process::exit(1);
 	});
-	
+
     server::new(|| {
         vec![
 			App::new()
 				.default_resource(|r| r.f(index))
 		]
 	})
-		.keep_alive(config["streamTimeout"].as_usize().unwrap_or(0)*4)
+		.keep_alive(15)
 		.bind_ssl(config["advanced"]["tlsAddr"].as_str().unwrap_or("[::]:443"), builder)
 		.unwrap_or_else(|_err| {
 			println!("{}", ["[Fatal]: Unable to bind to ".to_string(), config["advanced"]["tlsAddr"].as_str().unwrap_or("[::]:443").to_string(), "!".to_string()].concat());
