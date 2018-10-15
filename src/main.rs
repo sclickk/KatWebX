@@ -20,6 +20,7 @@ use mime_sniffer::MimeTypeSniffer;
 fn handle_path(mut path: String, mut host: String) -> (String, String, Option<String>) {
 	host = trim_port(host);
 
+
 	match path {
 		_ if path.ends_with("/index.html") => return ("./".to_owned(), "redir".to_owned(), None),
 		_ if path.contains("..") => return ("..".to_owned(), "redir".to_owned(), None),
@@ -28,6 +29,8 @@ fn handle_path(mut path: String, mut host: String) -> (String, String, Option<St
 	}
 
 	let fp = &[&*host, &*path].concat();
+
+	println!("{:?}", fp);
 
 	match host {
 	 	_ if host.len() < 1 || host[..1] == ".".to_owned() || host.contains("/") || host.contains("\\") => host = "html".to_string(),
@@ -38,11 +41,15 @@ fn handle_path(mut path: String, mut host: String) -> (String, String, Option<St
 				None => (),
 			};
 		},
+		_ if lproxy.binary_search(fp).is_ok() => {
+			match proxymap.get(fp) {
+				Some(link) => return (link.to_string(), "proxy".to_string(), None),
+				None => (),
+			};
+		},
 		_ if !Path::new(&host).exists() => host = "html".to_string(),
 		_ => (),
 	}
-
-	println!("{:?}", fp);
 
 	let full_path = &[&*host, &*path].concat();
 
@@ -176,7 +183,10 @@ fn index(_req: &HttpRequest) -> Box<Future<Item=HttpResponse, Error=Error>> {
 		if path == "forbid" {
 			return ui::http_error(StatusCode::FORBIDDEN, "403 Forbidden", "You do not have permission to access this resource.")
 		}
-		redir(&path);
+		return redir(&path);
+	}
+	if host == "proxy" {
+		return redir(&path);
 	}
 
 	let full_path = match fp {
