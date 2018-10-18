@@ -16,6 +16,7 @@ bytes = "*"
 futures-cpupool = "*"
 htmlescape = "*"
 number_prefix = "*"
+regex = "*"
 openssl = { version = "*", features = ["vendored"] }
 actix-web = { version = "*", features = ["alpn"] }
 
