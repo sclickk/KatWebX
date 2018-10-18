@@ -8,6 +8,7 @@ extern crate mime;
 extern crate mime_guess;
 extern crate mime_sniffer;
 extern crate json;
+extern crate regex;
 mod stream;
 mod ui;
 use actix_web::{server, App, HttpRequest, HttpResponse, AsyncResponder, Error, http::StatusCode, http::header, http::Method, http::header::HeaderValue, http::ContentEncoding};
@@ -15,11 +16,13 @@ use openssl::ssl::{SslMethod, SslAcceptor, SslFiletype};
 use futures::future::{Future, result};
 use std::{process, cmp, fs, fs::File, path::Path, io::Read, collections::HashMap};
 use mime_sniffer::MimeTypeSniffer;
+use regex::{Regex, RegexSet, SetMatchesIter};
 
 // Generate the correct host and path, from the raw data.
+// Redirects can be either full path based (localhost/redir) or regex-based.
+// Reverse proxying can be either virtual-host based (proxy.local) or regex-based.
 fn handle_path(mut path: String, mut host: String) -> (String, String, Option<String>) {
 	host = trim_port(host);
-
 
 	match path {
 		_ if path.ends_with("/index.html") => return ("./".to_owned(), "redir".to_owned(), None),
@@ -35,15 +38,16 @@ fn handle_path(mut path: String, mut host: String) -> (String, String, Option<St
 	match host {
 	 	_ if host.len() < 1 || host[..1] == ".".to_owned() || host.contains("/") || host.contains("\\") => host = "html".to_string(),
 		_ if hidden.binary_search(&host.to_owned()).is_ok() => host = "html".to_string(),
+		_ if hiddenx.is_match(&host.to_owned()) => host = "html".to_string(),
 		_ if lredir.binary_search(fp).is_ok() => {
 			match redirmap.get(fp) {
 				Some(link) => return (link.to_string(), "redir".to_string(), None),
 				None => (),
 			};
 		},
-		_ if lproxy.binary_search(fp).is_ok() => {
-			match proxymap.get(fp) {
-				Some(link) => return (link.to_string(), "proxy".to_string(), None),
+		_ if lproxy.binary_search(&host).is_ok() => {
+			match proxymap.get(&host) {
+				Some(link) => return ([link.to_string(), path].concat(), "proxy".to_string(), None),
 				None => (),
 			};
 		},
@@ -68,6 +72,14 @@ fn trim_port(path: String) -> String {
 	match path.rfind(":") {
 		Some(i) => return path[0..i].to_string(),
 		None => return path,
+	}
+}
+
+// Trim a substring (prefix) from the beginning of a string.
+fn trim_prefix(prefix: String, root: String) -> String {
+	match root.find(&*prefix) {
+		Some(i) => return root[i..].to_string(),
+		None => return root,
 	}
 }
 
@@ -133,6 +145,24 @@ fn map_json(array: &json::Array, attr1: &str, attr2: &str) -> HashMap<String, St
 	return tmp
 }
 
+// Turn a JSON array into parsed regex. All regex strings must start with r#, so that the program knows they are regex. The r# will be trimmed from the string before the regex is parsed.
+fn parse_json_regex(array: &json::Array, attr: &str) -> Result<RegexSet, regex::Error> {
+	let mut tmp = Vec::new();
+	for item in array {
+		if item[0] != "r#" {
+			continue
+		}
+		let itemt;
+		if attr == "" {
+			itemt = item.as_str().unwrap_or("").to_string();
+		} else {
+		 	itemt = item[attr].as_str().unwrap_or("").to_string();
+		}
+		tmp.push(trim_prefix("r#".to_string(), itemt))
+	}
+	return RegexSet::new(&tmp);
+}
+
 // Global constants generated at runtime.
 lazy_static! {
 	static ref confraw: String = fs::read_to_string("conf.json").unwrap_or(r#"{"cachingTimeout":4,"proxy":[{"location":"localhost/proxy","host":"https://kittyhacker101.tk"}],"redir":[{"location":"localhost/redir","dest":"https://kittyhacker101.tk"}],"hide":["src"],"advanced":{"protect":true,"httpAddr":"[::]:80","tlsAddr":"[::]:443"}}"#.to_string());
@@ -150,6 +180,10 @@ lazy_static! {
 		},
 		_ => Vec::new(),
 	};
+	static ref hiddenx: RegexSet = match &config["hide"] {
+		json::JsonValue::Array(array) => parse_json_regex(array, "").unwrap_or(RegexSet::new(&["$x"]).unwrap()),
+		_ => RegexSet::new(&["$x"]).unwrap(),
+	};
 	static ref lredir: Vec<String> = match &config["redir"] {
 		json::JsonValue::Array(array) => sort_json(array, "location"),
 		_ => Vec::new(),
@@ -158,6 +192,10 @@ lazy_static! {
 		json::JsonValue::Array(array) => map_json(array, "location", "dest"),
 		_ => HashMap::new(),
 	};
+	static ref redirx: RegexSet = match &config["redir"] {
+		json::JsonValue::Array(array) => parse_json_regex(array, "location").unwrap_or(RegexSet::new(&["$x"]).unwrap()),
+		_ => RegexSet::new(&["$x"]).unwrap(),
+	};
 	static ref lproxy: Vec<String> = match &config["proxy"] {
 		json::JsonValue::Array(array) => sort_json(array, "location"),
 		_ => Vec::new(),
@@ -165,6 +203,10 @@ lazy_static! {
 	static ref proxymap: HashMap<String, String> = match &config["proxy"] {
 		json::JsonValue::Array(array) => map_json(array, "location", "host"),
 		_ => HashMap::new(),
+	};
+	static ref proxyx: RegexSet = match &config["proxy"] {
+		json::JsonValue::Array(array) => parse_json_regex(array, "location").unwrap_or(RegexSet::new(&["$x"]).unwrap()),
+		_ => RegexSet::new(&["$x"]).unwrap(),
 	};
 	static ref blankheader: HeaderValue = HeaderValue::from_static("");
 }
@@ -175,10 +217,6 @@ fn index(_req: &HttpRequest) -> Box<Future<Item=HttpResponse, Error=Error>> {
 
 	let (path, host, fp) = handle_path(_req.path().to_string(), conn_info.host().to_string());
 
-	if _req.method() != Method::GET && _req.method() != Method::HEAD {
-		return ui::http_error(StatusCode::METHOD_NOT_ALLOWED, "405 Method Not Allowed", "Only GET and HEAD methods are supported.")
-	}
-
 	if host == "redir" {
 		if path == "forbid" {
 			return ui::http_error(StatusCode::FORBIDDEN, "403 Forbidden", "You do not have permission to access this resource.")
@@ -187,6 +225,10 @@ fn index(_req: &HttpRequest) -> Box<Future<Item=HttpResponse, Error=Error>> {
 	}
 	if host == "proxy" {
 		return redir(&path);
+	}
+
+	if _req.method() != Method::GET && _req.method() != Method::HEAD {
+		return ui::http_error(StatusCode::METHOD_NOT_ALLOWED, "405 Method Not Allowed", "Only GET and HEAD methods are supported.")
 	}
 
 	let full_path = match fp {
@@ -254,10 +296,13 @@ fn index(_req: &HttpRequest) -> Box<Future<Item=HttpResponse, Error=Error>> {
 // Load configuration, SSL certs, then attempt to start the program.
 fn main() {
 	lazy_static::initialize(&hidden);
+	lazy_static::initialize(&hiddenx);
 	lazy_static::initialize(&lredir);
 	lazy_static::initialize(&redirmap);
+	lazy_static::initialize(&redirx);
 	lazy_static::initialize(&lproxy);
 	lazy_static::initialize(&proxymap);
+	lazy_static::initialize(&proxyx);
 
 	fs::write("conf.json", config.pretty(2)).unwrap_or_else(|_err| {
 		println!("[Warn]: Unable to write configuration!");
