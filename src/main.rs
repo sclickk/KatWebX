@@ -16,7 +16,7 @@ use openssl::ssl::{SslMethod, SslAcceptor, SslFiletype};
 use futures::future::{Future, result};
 use std::{process, cmp, fs, fs::File, path::Path, io::Read, collections::HashMap};
 use mime_sniffer::MimeTypeSniffer;
-use regex::RegexSet;
+use regex::{Regex, NoExpand, RegexSet};
 
 // Generate the correct host and path, from the raw data.
 // Hidden hosts can be virtual-host based (hidden.local) or regex-based.
@@ -68,7 +68,7 @@ fn handle_path(mut path: String, mut host: String) -> (String, String, Option<St
 				None => (),
 			}
 			match proxymap.get(&["r#", r].concat()) {
-				Some(link) => return (link.to_string(), "proxy".to_string(), None),
+				Some(link) => return ([link.to_string(), trim_regex(r.to_string(), fp.to_string())].concat(), "proxy".to_string(), None),
 				None => (),
 			};
 		},
@@ -104,6 +104,20 @@ fn trim_prefix(prefix: String, root: String) -> String {
 		Some(i) => return root[i+prefix.len()..].to_string(),
 		None => return root,
 	}
+}
+
+// Trim a substring (suffix) from the end of a string.
+fn trim_suffix(suffix: String, root: String) -> String {
+	match root.rfind(&*suffix) {
+		Some(i) => return root[0..i].to_string(),
+		None => return root,
+	}
+}
+
+// Use regex to trim a string.
+fn trim_regex(regex: String, root: String) -> String {
+	let r = Regex::new(&regex).unwrap_or(Regex::new("$x").unwrap());
+	return r.replace_all(&root, NoExpand("")).to_string();
 }
 
 // Open both a file, and the file's metadata.
@@ -196,7 +210,7 @@ fn parse_json_regex(array: &json::Array, attr: &str) -> Result<RegexSet, regex::
 
 // Global constants generated at runtime.
 lazy_static! {
-	static ref confraw: String = fs::read_to_string("conf.json").unwrap_or(r#"{"cachingTimeout":4,"proxy":[{"location":"localhost/proxy","host":"https://kittyhacker101.tk"}],"redir":[{"location":"localhost/redir","dest":"https://kittyhacker101.tk"}],"hide":["src"],"advanced":{"protect":true,"httpAddr":"[::]:80","tlsAddr":"[::]:443"}}"#.to_string());
+	static ref confraw: String = fs::read_to_string("conf.json").unwrap_or(r#"{"cachingTimeout":4,"proxy":[{"location":"proxy.local","host":"https://google.com"},{"location":"r#localhost\/proxy[0-9]","host":"https://kittyhacker101.tk"}],"redir":[{"location":"localhost/redir","dest":"https://kittyhacker101.tk"},{"location":"r#localhost/redir2.*","dest":"https://google.com"}],"hide":["src"],"advanced":{"protect":true,"httpAddr":"[::]:80","tlsAddr":"[::]:443"}}"#.to_string());
 	static ref config: json::JsonValue<> = json::parse(&confraw).unwrap_or_else(|_err| {
 		println!("[Fatal]: Unable to parse configuration!");
 		process::exit(1);
@@ -257,6 +271,9 @@ fn index(_req: &HttpRequest) -> Box<Future<Item=HttpResponse, Error=Error>> {
 		return redir(&path);
 	}
 	if host == "proxy" {
+		if path.ends_with("/index.html") {
+			return redir(&trim_suffix("index.html".to_string(), path));
+		}
 		return redir(&path);
 	}
 
