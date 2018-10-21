@@ -32,21 +32,22 @@ fn handle_path(mut path: String, mut host: String) -> (String, String, Option<St
 		_ => (),
 	}
 
-	let fp = &[&*host, &*path].concat();
+	let fp = &[host.to_owned(), path.to_owned()].concat();
 
+	// TODO: Implement bettter logging.
 	println!("{:?}", fp);
 
 	match host {
-	 	_ if host.len() < 1 || host[..1] == ".".to_owned() || host.contains("/") || host.contains("\\") => host = "html".to_string(),
+	 	_ if host.len() < 1 || host[..1] == ".".to_owned() || host.contains("/") || host.contains("\\") => host = "html".to_owned(),
 		_ if lredir.binary_search(fp).is_ok() => {
 			match redirmap.get(fp) {
-				Some(link) => return (link.to_string(), "redir".to_string(), None),
+				Some(link) => return (link.to_string(), "redir".to_owned(), None),
 				None => (),
 			};
 		},
 		_ if lproxy.binary_search(&host).is_ok() => {
 			match proxymap.get(&host) {
-				Some(link) => return ([link.to_string(), path].concat(), "proxy".to_string(), None),
+				Some(link) => return ([link.to_string(), path].concat(), "proxy".to_owned(), None),
 				None => (),
 			};
 		},
@@ -57,7 +58,7 @@ fn handle_path(mut path: String, mut host: String) -> (String, String, Option<St
 				None => (),
 			}
 			match redirmap.get(&["r#", r].concat()) {
-				Some(link) => return (link.to_string(), "redir".to_string(), None),
+				Some(link) => return (link.to_string(), "redir".to_owned(), None),
 				None => (),
 			};
 		},
@@ -68,13 +69,13 @@ fn handle_path(mut path: String, mut host: String) -> (String, String, Option<St
 				None => (),
 			}
 			match proxymap.get(&["r#", r].concat()) {
-				Some(link) => return ([link.to_string(), trim_regex(r.to_string(), fp.to_string())].concat(), "proxy".to_string(), None),
+				Some(link) => return ([link.to_string(), trim_regex(r, &fp)].concat(), "proxy".to_owned(), None),
 				None => (),
 			};
 		},
-		_ if hidden.binary_search(&host.to_owned()).is_ok() => host = "html".to_string(),
-		_ if hiddenx.is_match(&host.to_owned()) => host = "html".to_string(),
-		_ if !Path::new(&host).exists() => host = "html".to_string(),
+		_ if hidden.binary_search(&host.to_owned()).is_ok() => host = "html".to_owned(),
+		_ if hiddenx.is_match(&host.to_owned()) => host = "html".to_owned(),
+		_ if !Path::new(&host).exists() => host = "html".to_owned(),
 		_ => (),
 	}
 
@@ -87,13 +88,13 @@ fn handle_path(mut path: String, mut host: String) -> (String, String, Option<St
 fn trim_port(path: String) -> String {
 	if path.contains("[") && path.contains("]:") {
 		match path.rfind("]:") {
-			Some(i) => return path[0..i+1].to_string(),
+			Some(i) => return path[..i+1].to_string(),
 			None => return path,
 		}
 	}
 
 	match path.rfind(":") {
-		Some(i) => return path[0..i].to_string(),
+		Some(i) => return path[..i].to_string(),
 		None => return path,
 	}
 }
@@ -109,14 +110,14 @@ fn trim_prefix(prefix: String, root: String) -> String {
 // Trim a substring (suffix) from the end of a string.
 fn trim_suffix(suffix: String, root: String) -> String {
 	match root.rfind(&*suffix) {
-		Some(i) => return root[0..i].to_string(),
+		Some(i) => return root[..i].to_string(),
 		None => return root,
 	}
 }
 
 // Use regex to trim a string.
-fn trim_regex(regex: String, root: String) -> String {
-	let r = Regex::new(&regex).unwrap_or(Regex::new("$x").unwrap());
+fn trim_regex(regex: &str, root: &str) -> String {
+	let r = Regex::new(regex).unwrap_or(Regex::new("$x").unwrap());
 	return r.replace_all(&root, NoExpand("")).to_string();
 }
 
@@ -151,7 +152,7 @@ fn get_mime(data: &Vec<u8>, path: &str) -> String {
 		mime = mreq.sniff_mime_type().unwrap_or("").to_string();
 	}
 	if mime.starts_with("text/") && !mime.contains("charset") {
-		return [mime, "; charset=utf-8".to_string()].concat();
+		return [mime, "; charset=utf-8".to_owned()].concat();
 	}
 
 	return mime
@@ -195,7 +196,7 @@ fn array_json_regex(array: &json::Array, attr: &str) -> Vec<String> {
 		 	itemt = item[attr].as_str().unwrap_or("").to_string();
 		}
 		if itemt.starts_with("r#") {
-			tmp.push(trim_prefix("r#".to_string(), itemt))
+			tmp.push(trim_prefix("r#".to_owned(), itemt))
 		}
 	}
 	tmp.sort_unstable();
@@ -210,7 +211,7 @@ fn parse_json_regex(array: &json::Array, attr: &str) -> Result<RegexSet, regex::
 
 // Global constants generated at runtime.
 lazy_static! {
-	static ref confraw: String = fs::read_to_string("conf.json").unwrap_or(r#"{"cachingTimeout":4,"proxy":[{"location":"proxy.local","host":"https://google.com"},{"location":"r#localhost\/proxy[0-9]","host":"https://kittyhacker101.tk"}],"redir":[{"location":"localhost/redir","dest":"https://kittyhacker101.tk"},{"location":"r#localhost/redir2.*","dest":"https://google.com"}],"hide":["src"],"advanced":{"protect":true,"httpAddr":"[::]:80","tlsAddr":"[::]:443"}}"#.to_string());
+	static ref confraw: String = fs::read_to_string("conf.json").unwrap_or(r#"{"cachingTimeout":4,"proxy":[{"location":"proxy.local","host":"https://google.com"},{"location":"r#localhost\/proxy[0-9]","host":"https://kittyhacker101.tk"}],"redir":[{"location":"localhost/redir","dest":"https://kittyhacker101.tk"},{"location":"r#localhost/redir2.*","dest":"https://google.com"}],"hide":["src"],"advanced":{"protect":true,"httpAddr":"[::]:80","tlsAddr":"[::]:443"}}"#.to_owned());
 	static ref config: json::JsonValue<> = json::parse(&confraw).unwrap_or_else(|_err| {
 		println!("[Fatal]: Unable to parse configuration!");
 		process::exit(1);
@@ -218,8 +219,8 @@ lazy_static! {
 	static ref hidden: Vec<String> = match &config["hide"] {
 		json::JsonValue::Array(array) => {
 			let mut tmp = sort_json(array, "");
-			tmp.push("ssl".to_string());
-			tmp.push("redir".to_string());
+			tmp.push("ssl".to_owned());
+			tmp.push("redir".to_owned());
 			tmp.sort_unstable();
 			return tmp;
 		},
@@ -272,7 +273,7 @@ fn index(_req: &HttpRequest) -> Box<Future<Item=HttpResponse, Error=Error>> {
 	}
 	if host == "proxy" {
 		if path.ends_with("/index.html") {
-			return redir(&trim_suffix("index.html".to_string(), path));
+			return redir(&trim_suffix("index.html".to_owned(), path));
 		}
 		return redir(&path);
 	}
@@ -330,7 +331,7 @@ fn index(_req: &HttpRequest) -> Box<Future<Item=HttpResponse, Error=Error>> {
 				builder.header(header::CACHE_CONTROL, "no-store, must-revalidate");
 			})
 			.if_true(cache_int != 0, |builder| {
-				builder.header(header::CACHE_CONTROL, ["max-age=".to_string(), (cache_int*3600).to_string(), ", public, stale-while-revalidate=".to_string(), (cache_int*900).to_string()].concat());
+				builder.header(header::CACHE_CONTROL, ["max-age=".to_owned(), (cache_int*3600).to_string(), ", public, stale-while-revalidate=".to_owned(), (cache_int*900).to_string()].concat());
 			})
 			.if_true(config["advanced"]["protect"].as_bool().unwrap_or(false), |builder| {
 				builder.header(header::REFERRER_POLICY, "no-referrer");
@@ -380,12 +381,12 @@ fn main() {
 		.keep_alive(15)
 		.bind_ssl(config["advanced"]["tlsAddr"].as_str().unwrap_or("[::]:443"), builder)
 		.unwrap_or_else(|_err| {
-			println!("{}", ["[Fatal]: Unable to bind to ".to_string(), config["advanced"]["tlsAddr"].as_str().unwrap_or("[::]:443").to_string(), "!".to_string()].concat());
+			println!("{}", ["[Fatal]: Unable to bind to ".to_owned(), config["advanced"]["tlsAddr"].as_str().unwrap_or("[::]:443").to_string(), "!".to_owned()].concat());
 			process::exit(1);
 		})
 		.bind(config["advanced"]["httpAddr"].as_str().unwrap_or("[::]:80"))
 		.unwrap_or_else(|_err| {
-			println!("{}", ["[Fatal]: Unable to bind to ".to_string(), config["advanced"]["httpAddr"].as_str().unwrap_or("[::]:80").to_string(), "!".to_string()].concat());
+			println!("{}", ["[Fatal]: Unable to bind to ".to_owned(), config["advanced"]["httpAddr"].as_str().unwrap_or("[::]:80").to_string(), "!".to_owned()].concat());
 			process::exit(1);
 		})
         .run();

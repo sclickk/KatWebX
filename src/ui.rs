@@ -54,10 +54,10 @@ pub fn dir_listing(path: &str, trim: &str) -> Box<Future<Item=HttpResponse, Erro
 			}
 		}
 
-		let mut sizestr = "".to_string();
+		let mut sizestr = "".to_owned();
 		if icon != FOLDERSVG {
 			match decimal_prefix(size as f64) {
-				Standalone(bytes)   => {sizestr = [bytes.to_string(), "b".to_string()].concat()}
+				Standalone(bytes)   => {sizestr = [bytes.to_string(), "b".to_owned()].concat()}
 				Prefixed(prefix, n) => {sizestr = [&((n*10_f64).round()/10_f64).to_string(), prefix.symbol()].concat()}
 			}
 		}
@@ -65,7 +65,7 @@ pub fn dir_listing(path: &str, trim: &str) -> Box<Future<Item=HttpResponse, Erro
 		html = [&html, "<a href='", &encode_attribute(fstr.to_string_lossy()[trim.len()..].borrow()), "'>", icon, &encode_minimal(name.borrow()), "<span class=righthov>", &sizestr, "</span></a></br>"].concat()
 	}
 
-	html = [html, "<span class=btmright>Powered by KatWebX</span>".to_string()].concat();
+	html = [html, "<span class=btmright>Powered by KatWebX</span>".to_owned()].concat();
 
 	return result(Ok(
 		HttpResponse::Ok()
