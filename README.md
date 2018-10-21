@@ -7,10 +7,10 @@ KatWebX is an early work in progress, and you will encounter bugs. **Do not use 
 ## Current/Planned Features
 - [x] Flexible config parsing
 - [x] Server-side redirects
-- [ ] Regex-based redirects
+- [x] Regex-based redirects
 - [x] Flexible config parsing
 - [ ] Fast reverse proxy
-- [ ] Regex-based reverse proxying
+- [x] Regex-based reverse proxying
 - [ ] Proxy gzip compression
 - [ ] HTTP basic authentication
 - [ ] Regex-based auth
