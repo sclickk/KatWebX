@@ -53,10 +53,10 @@ fn handle_path(mut path: String, mut host: String) -> (String, String, Option<St
 		_ if redirx.is_match(fp) => {
 			let mut r = "$x";
 			match redirx.matches(fp).iter().next() {
-				Some(regx) => r = &lredirx[regx],
+				Some(regx) => {r = &lredirx[regx]},
 				None => (),
 			}
-			match redirmap.get(r) {
+			match redirmap.get(&["r#", r].concat()) {
 				Some(link) => return (link.to_string(), "redir".to_string(), None),
 				None => (),
 			};
@@ -67,7 +67,7 @@ fn handle_path(mut path: String, mut host: String) -> (String, String, Option<St
 				Some(regx) => r = &lproxyx[regx],
 				None => (),
 			}
-			match proxymap.get(r) {
+			match proxymap.get(&["r#", r].concat()) {
 				Some(link) => return (link.to_string(), "proxy".to_string(), None),
 				None => (),
 			};
