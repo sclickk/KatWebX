@@ -18,6 +18,9 @@ use std::{process, cmp, fs, fs::File, path::Path, io::Read, collections::HashMap
 use mime_sniffer::MimeTypeSniffer;
 use regex::{Regex, NoExpand, RegexSet};
 
+// The default configuration for the server to use.
+const DEFAULT_CONFIG: &str = r#"{"cachingTimeout":4,"streamTimeout":20,"proxy":[{"location":"proxy.local","host":"https://google.com"},{"location":"r#localhost\/proxy[0-9]","host":"https://kittyhacker101.tk"}],"redir":[{"location":"localhost/redir","dest":"https://kittyhacker101.tk"},{"location":"r#localhost/redir2.*","dest":"https://google.com"}],"hide":["src"],"advanced":{"protect":true,"httpAddr":"[::]:80","tlsAddr":"[::]:443"}}"#;
+
 // Generate the correct host and path, from the raw data.
 // Hidden hosts can be virtual-host based (hidden.local) or regex-based.
 // Redirects can be either full path based (localhost/redir) or regex-based.
@@ -211,7 +214,7 @@ fn parse_json_regex(array: &json::Array, attr: &str) -> Result<RegexSet, regex::
 
 // Global constants generated at runtime.
 lazy_static! {
-	static ref confraw: String = fs::read_to_string("conf.json").unwrap_or(r#"{"cachingTimeout":4,"proxy":[{"location":"proxy.local","host":"https://google.com"},{"location":"r#localhost\/proxy[0-9]","host":"https://kittyhacker101.tk"}],"redir":[{"location":"localhost/redir","dest":"https://kittyhacker101.tk"},{"location":"r#localhost/redir2.*","dest":"https://google.com"}],"hide":["src"],"advanced":{"protect":true,"httpAddr":"[::]:80","tlsAddr":"[::]:443"}}"#.to_owned());
+	static ref confraw: String = fs::read_to_string("conf.json").unwrap_or(DEFAULT_CONFIG.to_owned());
 	static ref config: json::JsonValue<> = json::parse(&confraw).unwrap_or_else(|_err| {
 		println!("[Fatal]: Unable to parse configuration!");
 		process::exit(1);
@@ -378,7 +381,8 @@ fn main() {
 				.default_resource(|r| r.f(index))
 		]
 	})
-		.keep_alive(15)
+		.maxconn(64000).backlog(4096).maxconnrate(512).client_timeout(4000).client_shutdown(4000)
+		.keep_alive(config["streamTimeout"].as_usize().unwrap_or(20))
 		.bind_ssl(config["advanced"]["tlsAddr"].as_str().unwrap_or("[::]:443"), builder)
 		.unwrap_or_else(|_err| {
 			println!("{}", ["[Fatal]: Unable to bind to ".to_owned(), config["advanced"]["tlsAddr"].as_str().unwrap_or("[::]:443").to_string(), "!".to_owned()].concat());
