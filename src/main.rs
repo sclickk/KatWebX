@@ -131,6 +131,7 @@ fn redir(path: &str) -> Box<Future<Item=HttpResponse, Error=Error>> {
 		HttpResponse::Ok()
 			.status(StatusCode::PERMANENT_REDIRECT)
 			.header(header::LOCATION, path)
+			.header(header::SERVER, "KatWebX-Alpha")
 			.content_type("text/html; charset=utf-8")
 			.body(["<a href='", path, "'>Click here</a>"].concat())))
 			.responder();
@@ -267,14 +268,36 @@ fn index(_req: &HttpRequest) -> Box<Future<Item=HttpResponse, Error=Error>> {
 		return redir(&path);
 	}
 	if host == "proxy" {
-		return client::ClientRequest::get(path)
-			.finish().unwrap()
-			.send().map_err(Error::from)
+		let re = client::ClientRequest::build()
+			.uri(path)
+			.method(_req.method().to_owned())
+			.if_true(true, |req| {
+				let mut client_ip = conn_info.remote().unwrap_or("127.0.0.1").to_string();
+				for (key, value) in _req.headers().iter() {
+					match key.to_owned().as_str() {
+						"Connection" | "Proxy-Connection" | "Keep-Alive" | "Proxy-Authenticate" | "Proxy-Authorization" | "Te" | "Trailer" | "Transfer-Encoding" | "Upgrade" => (),
+						"X-Forwarded-For" => client_ip = [value.to_owned().to_str().unwrap_or("127.0.0.1"), ", ", &client_ip].concat(),
+						_ => {
+							req.header(key.to_owned(), value.to_owned());
+							continue
+						},
+					};
+				}
+				req.header("X-Forwarded-For", client_ip);
+			})
+			.finish();
+
+		let req;
+		match re {
+			Ok(r) => req = r,
+			Err(_) => return ui::http_error(StatusCode::INTERNAL_SERVER_ERROR, "500 Internal Server Error", "An unexpected condition was encountered, try again later."),
+		}
+
+		return req.send().map_err(Error::from)
 			.and_then(|resp| {
 				Ok(HttpResponse::Ok()
 					.body(Body::Streaming(Box::new(resp.payload().from_err()))))
 			}).responder();
-		//return redir(&path);
 	}
 
 	if _req.method() != Method::GET && _req.method() != Method::HEAD {
