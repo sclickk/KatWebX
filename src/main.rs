@@ -11,9 +11,9 @@ extern crate json;
 extern crate regex;
 mod stream;
 mod ui;
-use actix_web::{server, App, HttpRequest, HttpResponse, AsyncResponder, Error, http::StatusCode, http::header, http::Method, http::header::HeaderValue, http::ContentEncoding};
+use actix_web::{server, client, App, Body, http::{header, header::HeaderValue, Method, ContentEncoding, StatusCode}, HttpRequest, HttpResponse, HttpMessage, AsyncResponder, Error};
 use openssl::ssl::{SslMethod, SslAcceptor, SslFiletype};
-use futures::future::{Future, result};
+use futures::{Stream, future::{Future, result}};
 use std::{process, cmp, fs, fs::File, path::Path, io::Read, collections::HashMap};
 use mime_sniffer::MimeTypeSniffer;
 use regex::{Regex, NoExpand, RegexSet};
@@ -21,24 +21,19 @@ use regex::{Regex, NoExpand, RegexSet};
 // The default configuration for the server to use.
 const DEFAULT_CONFIG: &str = r#"{"cachingTimeout":4,"streamTimeout":20,"proxy":[{"location":"proxy.local","host":"https://google.com"},{"location":"r#localhost\/proxy[0-9]","host":"https://kittyhacker101.tk"}],"redir":[{"location":"localhost/redir","dest":"https://kittyhacker101.tk"},{"location":"r#localhost/redir2.*","dest":"https://google.com"}],"hide":["src"],"advanced":{"protect":true,"httpAddr":"[::]:80","tlsAddr":"[::]:443"}}"#;
 
-// Generate the correct host and path, from the raw data.
+// Generate the correct host and path, from raw data.
 // Hidden hosts can be virtual-host based (hidden.local) or regex-based.
 // Redirects can be either full path based (localhost/redir) or regex-based.
 // Reverse proxying can be either virtual-host based (proxy.local) or regex-based.
 fn handle_path(mut path: String, mut host: String) -> (String, String, Option<String>) {
 	host = trim_port(host);
-
+	let fp = &[host.to_owned(), path.to_owned()].concat();
 	match path {
 		_ if path.ends_with("/index.html") => return ("./".to_owned(), "redir".to_owned(), None),
 		_ if path.contains("..") => return ("..".to_owned(), "redir".to_owned(), None),
 		_ if path.ends_with("/") => path.push_str("index.html"),
 		_ => (),
 	}
-
-	let fp = &[host.to_owned(), path.to_owned()].concat();
-
-	// TODO: Implement bettter logging.
-	println!("{:?}", fp);
 
 	match host {
 	 	_ if host.len() < 1 || host[..1] == ".".to_owned() || host.contains("/") || host.contains("\\") => host = "html".to_owned(),
@@ -50,7 +45,7 @@ fn handle_path(mut path: String, mut host: String) -> (String, String, Option<St
 		},
 		_ if lproxy.binary_search(&host).is_ok() => {
 			match proxymap.get(&host) {
-				Some(link) => return ([link.to_string(), path].concat(), "proxy".to_owned(), None),
+				Some(link) => return ([link.to_string(), trim_suffix("index.html".to_owned(), path)].concat(), "proxy".to_owned(), None),
 				None => (),
 			};
 		},
@@ -61,7 +56,7 @@ fn handle_path(mut path: String, mut host: String) -> (String, String, Option<St
 				None => (),
 			}
 			match redirmap.get(&["r#", r].concat()) {
-				Some(link) => return (link.to_string(), "redir".to_owned(), None),
+				Some(link) => return ([link.to_string(), trim_regex(r, &fp)].concat(), "redir".to_owned(), None),
 				None => (),
 			};
 		},
@@ -80,10 +75,9 @@ fn handle_path(mut path: String, mut host: String) -> (String, String, Option<St
 		_ if hiddenx.is_match(&host.to_owned()) => host = "html".to_owned(),
 		_ if !Path::new(&host).exists() => host = "html".to_owned(),
 		_ => (),
-	}
+	};
 
 	let full_path = &[&*host, &*path].concat();
-
 	return (path, host, Some(full_path.to_string()))
 }
 
@@ -142,7 +136,8 @@ fn redir(path: &str) -> Box<Future<Item=HttpResponse, Error=Error>> {
 			.responder();
 }
 
-// Guess the MIME type based on file extension. If the file extension is not known, attempt to guess the mime type.
+// Return a MIME type based on file extension.
+// If the file extension is not known, attempt to guess the mime type.
 fn get_mime(data: &Vec<u8>, path: &str) -> String {
 	let mut mime = mime_guess::guess_mime_type(path).to_string();
 	if mime == "application/octet-stream" {
@@ -172,7 +167,6 @@ fn sort_json(array: &json::Array, attr: &str) -> Vec<String> {
 		}
 	}
 	tmp.sort_unstable();
-	println!("{:?}", tmp);
 	return tmp
 }
 
@@ -182,10 +176,8 @@ fn map_json(array: &json::Array, attr1: &str, attr2: &str) -> HashMap<String, St
 	for item in array {
 		tmp.insert(item[attr1].as_str().unwrap_or("").to_string(), item[attr2].as_str().unwrap_or("").to_string());
 	}
-	println!("{:?}", tmp);
 	return tmp
 }
-
 
 // Turn a JSON array into a Vec<String>, only adding items which contain regex.
 // All regex strings must start with r#, so that the program knows they are regex. The r# will be trimmed from the string before the regex is parsed.
@@ -203,7 +195,6 @@ fn array_json_regex(array: &json::Array, attr: &str) -> Vec<String> {
 		}
 	}
 	tmp.sort_unstable();
-	println!("{:?}", tmp);
 	return tmp
 }
 
@@ -267,6 +258,7 @@ fn index(_req: &HttpRequest) -> Box<Future<Item=HttpResponse, Error=Error>> {
 	let conn_info = _req.connection_info();
 
 	let (path, host, fp) = handle_path(_req.path().to_string(), conn_info.host().to_string());
+	println!("{:?}", [conn_info.host(), _req.path()].concat());
 
 	if host == "redir" {
 		if path == "forbid" {
@@ -275,10 +267,14 @@ fn index(_req: &HttpRequest) -> Box<Future<Item=HttpResponse, Error=Error>> {
 		return redir(&path);
 	}
 	if host == "proxy" {
-		if path.ends_with("/index.html") {
-			return redir(&trim_suffix("index.html".to_owned(), path));
-		}
-		return redir(&path);
+		return client::ClientRequest::get(path)
+			.finish().unwrap()
+			.send().map_err(Error::from)
+			.and_then(|resp| {
+				Ok(HttpResponse::Ok()
+					.body(Body::Streaming(Box::new(resp.payload().from_err()))))
+			}).responder();
+		//return redir(&path);
 	}
 
 	if _req.method() != Method::GET && _req.method() != Method::HEAD {
