@@ -9,7 +9,7 @@ KatWebX is an early work in progress, and you will encounter bugs. **Do not use 
 - [x] Server-side redirects
 - [x] Regex-based redirects
 - [x] Flexible config parsing
-- [ ] Fast reverse proxy
+- [x] Fast reverse proxy
 - [x] Regex-based reverse proxying
 - [ ] Proxy gzip compression
 - [ ] HTTP basic authentication
