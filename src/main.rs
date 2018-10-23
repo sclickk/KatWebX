@@ -11,7 +11,7 @@ extern crate json;
 extern crate regex;
 mod stream;
 mod ui;
-use actix_web::{server, client, App, Body, http::{header, header::HeaderValue, Method, ContentEncoding, StatusCode}, HttpRequest, HttpResponse, HttpMessage, AsyncResponder, Error};
+use actix_web::{server, client, App, Body, http::{header, header::{HeaderValue, HeaderMap}, Method, ContentEncoding, StatusCode}, HttpRequest, HttpResponse, HttpMessage, AsyncResponder, Error};
 use openssl::ssl::{SslMethod, SslAcceptor, SslFiletype};
 use futures::{Stream, future::{Future, result}};
 use std::{process, cmp, fs, fs::File, path::Path, io::Read, collections::HashMap};
@@ -79,6 +79,54 @@ fn handle_path(mut path: String, mut host: String) -> (String, String, Option<St
 
 	let full_path = &[&*host, &*path].concat();
 	return (path, host, Some(full_path.to_string()))
+}
+
+// Reverse proxy a request, passing through any compression.
+// This cannot proxy websockets, because it removes the "Connection" HTTP header.
+// Hop-by-hop headers are removed, to allow connection reuse.
+fn proxy_request(path: String, method: Method, headers: &HeaderMap, mut client_ip: String) -> Box<Future<Item=HttpResponse, Error=Error>> {
+	let re = client::ClientRequest::build()
+		.uri(path).method(method).disable_decompress()
+		.if_true(true, |req| {
+			for (key, value) in headers.iter() {
+				match key.to_owned().as_str() {
+					"Connection" | "Proxy-Connection" | "Keep-Alive" | "Proxy-Authenticate" | "Proxy-Authorization" | "Te" | "Trailer" | "Transfer-Encoding" | "Upgrade" => (),
+					"X-Forwarded-For" => client_ip = [value.to_owned().to_str().unwrap_or("127.0.0.1"), ", ", &client_ip].concat(),
+					_ => {
+						req.header(key.to_owned(), value.to_owned());
+						continue
+					},
+				};
+			}
+			req.header("X-Forwarded-For", client_ip);
+		})
+		.set_header_if_none("Accept-Encoding", "none")
+		.set_header_if_none("User-Agent", "KatWebX-Proxy")
+		.finish();
+
+	let req;
+	match re {
+		Ok(r) => req = r,
+		Err(_) => return ui::http_error(StatusCode::INTERNAL_SERVER_ERROR, "500 Internal Server Error", "An unexpected condition was encountered, try again later."),
+	}
+
+	return req.send().map_err(Error::from)
+		.and_then(|resp| {
+			Ok(HttpResponse::Ok()
+				.if_true(true, |req| {
+					for (key, value) in resp.headers().iter() {
+						if key == "content-length" {
+							continue
+						}
+						if key == "content-encoding" {
+							// We don't want the data to be compressed more than once.
+							req.content_encoding(ContentEncoding::Identity);
+						}
+						req.header(key.to_owned(), value.to_owned());
+					}
+				})
+				.body(Body::Streaming(Box::new(resp.payload().from_err()))))
+		}).responder();
 }
 
 // Trim the port from an IPv4 address, IPv6 address, or domain:port.
@@ -259,7 +307,7 @@ fn index(_req: &HttpRequest) -> Box<Future<Item=HttpResponse, Error=Error>> {
 	let conn_info = _req.connection_info();
 
 	let (path, host, fp) = handle_path(_req.path().to_string(), conn_info.host().to_string());
-	println!("{:?}", [conn_info.host(), _req.path()].concat());
+	println!("{:?}", [trim_port(conn_info.host().to_string()), _req.path().to_string()].concat());
 
 	if host == "redir" {
 		if path == "forbid" {
@@ -268,36 +316,7 @@ fn index(_req: &HttpRequest) -> Box<Future<Item=HttpResponse, Error=Error>> {
 		return redir(&path);
 	}
 	if host == "proxy" {
-		let re = client::ClientRequest::build()
-			.uri(path)
-			.method(_req.method().to_owned())
-			.if_true(true, |req| {
-				let mut client_ip = conn_info.remote().unwrap_or("127.0.0.1").to_string();
-				for (key, value) in _req.headers().iter() {
-					match key.to_owned().as_str() {
-						"Connection" | "Proxy-Connection" | "Keep-Alive" | "Proxy-Authenticate" | "Proxy-Authorization" | "Te" | "Trailer" | "Transfer-Encoding" | "Upgrade" => (),
-						"X-Forwarded-For" => client_ip = [value.to_owned().to_str().unwrap_or("127.0.0.1"), ", ", &client_ip].concat(),
-						_ => {
-							req.header(key.to_owned(), value.to_owned());
-							continue
-						},
-					};
-				}
-				req.header("X-Forwarded-For", client_ip);
-			})
-			.finish();
-
-		let req;
-		match re {
-			Ok(r) => req = r,
-			Err(_) => return ui::http_error(StatusCode::INTERNAL_SERVER_ERROR, "500 Internal Server Error", "An unexpected condition was encountered, try again later."),
-		}
-
-		return req.send().map_err(Error::from)
-			.and_then(|resp| {
-				Ok(HttpResponse::Ok()
-					.body(Body::Streaming(Box::new(resp.payload().from_err()))))
-			}).responder();
+		return proxy_request(path, _req.method().to_owned(), _req.headers(), conn_info.remote().unwrap_or("127.0.0.1").to_string())
 	}
 
 	if _req.method() != Method::GET && _req.method() != Method::HEAD {
