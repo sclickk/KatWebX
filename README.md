@@ -12,7 +12,7 @@ KatWebX is an early work in progress, and you will encounter bugs. **Do not use 
 - [x] Fast reverse proxy
 - [ ] Websocket reverse proxy
 - [x] Regex-based reverse proxying
-- [ ] Proxy gzip compression
+- [x] Automatic proxy compression
 - [ ] HTTP basic authentication
 - [ ] Regex-based auth
 - [x] Fast file serving
