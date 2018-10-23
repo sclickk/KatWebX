@@ -100,14 +100,14 @@ fn proxy_request(path: String, method: Method, headers: &HeaderMap, mut client_i
 			}
 			req.header("X-Forwarded-For", client_ip);
 		})
-		.set_header_if_none("Accept-Encoding", "none")
-		.set_header_if_none("User-Agent", "KatWebX-Proxy")
+		.set_header_if_none(header::ACCEPT_ENCODING, "none")
+		.set_header_if_none(header::USER_AGENT, "KatWebX-Proxy")
 		.finish();
 
 	let req;
 	match re {
 		Ok(r) => req = r,
-		Err(_) => return ui::http_error(StatusCode::INTERNAL_SERVER_ERROR, "500 Internal Server Error", "An unexpected condition was encountered, try again later."),
+		Err(_) => return ui::http_error(StatusCode::BAD_GATEWAY, "502 Bad Gateway", "The server was acting as a proxy and received an invalid response from the upstream server."),
 	}
 
 	return req.send().map_err(Error::from)
@@ -115,10 +115,10 @@ fn proxy_request(path: String, method: Method, headers: &HeaderMap, mut client_i
 			Ok(HttpResponse::Ok()
 				.if_true(true, |req| {
 					for (key, value) in resp.headers().iter() {
-						if key == "content-length" {
+						if key == header::CONTENT_LENGTH {
 							continue
 						}
-						if key == "content-encoding" {
+						if key == header::CONTENT_ENCODING {
 							// We don't want the data to be compressed more than once.
 							req.content_encoding(ContentEncoding::Identity);
 						}
