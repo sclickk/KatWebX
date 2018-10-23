@@ -11,10 +11,10 @@ extern crate json;
 extern crate regex;
 mod stream;
 mod ui;
-use actix_web::{server, client, App, Body, http::{header, header::{HeaderValue, HeaderMap}, Method, ContentEncoding, StatusCode}, HttpRequest, HttpResponse, HttpMessage, AsyncResponder, Error};
-use openssl::ssl::{SslMethod, SslAcceptor, SslFiletype};
+use actix_web::{actix::{Addr, Actor}, server, client, client::ClientConnector, App, Body, http::{header, header::{HeaderValue, HeaderMap}, Method, ContentEncoding, StatusCode}, HttpRequest, HttpResponse, HttpMessage, AsyncResponder, Error};
+use openssl::ssl::{SslMethod, SslAcceptor, SslFiletype, SslConnector, SslSessionCacheMode};
 use futures::{Stream, future::{Future, result}};
-use std::{process, cmp, fs, fs::File, path::Path, io::Read, collections::HashMap};
+use std::{process, cmp, fs, fs::File, path::Path, io::Read, collections::HashMap, time::Duration};
 use mime_sniffer::MimeTypeSniffer;
 use regex::{Regex, NoExpand, RegexSet};
 
@@ -86,6 +86,7 @@ fn handle_path(mut path: String, mut host: String) -> (String, String, Option<St
 // Hop-by-hop headers are removed, to allow connection reuse.
 fn proxy_request(path: String, method: Method, headers: &HeaderMap, mut client_ip: String) -> Box<Future<Item=HttpResponse, Error=Error>> {
 	let re = client::ClientRequest::build()
+		.with_connector(clientconn.clone())
 		.uri(path).method(method).disable_decompress()
 		.if_true(true, |req| {
 			for (key, value) in headers.iter() {
@@ -98,6 +99,7 @@ fn proxy_request(path: String, method: Method, headers: &HeaderMap, mut client_i
 					},
 				};
 			}
+			req.header("Connection", "keep-alive");
 			req.header("X-Forwarded-For", client_ip);
 		})
 		.set_header_if_none(header::ACCEPT_ENCODING, "none")
@@ -300,6 +302,15 @@ lazy_static! {
 	};
 	static ref proxyx: RegexSet =  RegexSet::new(lproxyx.iter()).unwrap_or(RegexSet::new(&["$x"]).unwrap());
 	static ref blankheader: HeaderValue = HeaderValue::from_static("");
+	static ref clientconn: Addr<ClientConnector> = {
+		let mut builder = SslConnector::builder(SslMethod::tls()).unwrap();
+		builder.set_session_cache_mode(SslSessionCacheMode::BOTH);
+
+		ClientConnector::with_connector(builder.build())
+			.conn_lifetime(Duration::from_secs(config["streamTimeout"].as_u64().unwrap_or(20)*4))
+			.conn_keep_alive(Duration::from_secs(config["streamTimeout"].as_u64().unwrap_or(20)*4))
+			.start()
+	};
 }
 
 // HTTP(S) request handling.
@@ -307,7 +318,7 @@ fn index(_req: &HttpRequest) -> Box<Future<Item=HttpResponse, Error=Error>> {
 	let conn_info = _req.connection_info();
 
 	let (path, host, fp) = handle_path(_req.path().to_string(), conn_info.host().to_string());
-	println!("{:?}", [trim_port(conn_info.host().to_string()), _req.path().to_string()].concat());
+	//println!("{:?}", [trim_port(conn_info.host().to_string()), _req.path().to_string()].concat());
 
 	if host == "redir" {
 		if path == "forbid" {
@@ -395,6 +406,7 @@ fn main() {
 	lazy_static::initialize(&lproxy);
 	lazy_static::initialize(&proxymap);
 	lazy_static::initialize(&proxyx);
+	lazy_static::initialize(&clientconn);
 
 	fs::write("conf.json", config.pretty(2)).unwrap_or_else(|_err| {
 		println!("[Warn]: Unable to write configuration!");
@@ -419,7 +431,7 @@ fn main() {
 				.default_resource(|r| r.f(index))
 		]
 	})
-		.maxconn(64000).backlog(4096).maxconnrate(512).client_timeout(4000).client_shutdown(4000)
+		//.maxconn(64000).backlog(4096).maxconnrate(512).client_timeout(4000).client_shutdown(4000)
 		.keep_alive(config["streamTimeout"].as_usize().unwrap_or(20))
 		.bind_ssl(config["advanced"]["tlsAddr"].as_str().unwrap_or("[::]:443"), builder)
 		.unwrap_or_else(|_err| {
