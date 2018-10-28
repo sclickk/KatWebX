@@ -415,11 +415,26 @@ fn main() {
 	});
 
 	let mut tconfig = ServerConfig::new(NoClientAuth::new());
-	let cert_file = &mut BufReader::new(File::open("ssl/cert.pem").unwrap());
-	let key_file = &mut BufReader::new(File::open("ssl/key.pem").unwrap());
-	let cert_chain = certs(cert_file).unwrap();
-	let mut keys = rsa_private_keys(key_file).unwrap();
-	tconfig.set_single_cert(cert_chain, keys.remove(0)).unwrap();
+	let cert_file = &mut BufReader::new(File::open("ssl/cert.pem").unwrap_or_else(|_err| {
+		println!("[Fatal]: Unable to load ssl/cert.pem!");
+		process::exit(1);
+	}));
+	let key_file = &mut BufReader::new(File::open("ssl/key.pem").unwrap_or_else(|_err| {
+		println!("[Fatal]: Unable to load ssl/key.pem!");
+		process::exit(1);
+	}));
+	let cert_chain = certs(cert_file).unwrap_or_else(|_err| {
+		println!("[Fatal]: Unable to parse tls certificates!");
+		process::exit(1);
+	});
+	let mut keys = rsa_private_keys(key_file).unwrap_or_else(|_err| {
+		println!("[Fatal]: Unable to parse private key!");
+		process::exit(1);
+	});
+	tconfig.set_single_cert(cert_chain, keys.remove(0)).unwrap_or_else(|_err| {
+		println!("[Fatal]: Unable to parse private key!");
+		process::exit(1);
+	});
 	let acceptor = RustlsAcceptor::with_flags(
 		tconfig,
 		ServerFlags::HTTP1 | ServerFlags::HTTP2,
