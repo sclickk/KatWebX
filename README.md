@@ -19,8 +19,8 @@ KatWebX is an early work in progress, and you will encounter bugs. **Do not use 
 - [ ] Brotli file compression
 - [ ] HSTS support
 - [x] HTTP/2 and HTTP/1.1 support
-- [ ] TLS 1.3 support
-- [x] High peformance TLS 1.2
+- [x] High peformance TLS 1.3
+- [ ] SNI support
 - [ ] Advanced logging support
 - [x] Material design error pages
 - [x] Material design file listing
