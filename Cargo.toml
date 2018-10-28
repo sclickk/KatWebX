@@ -18,8 +18,7 @@ htmlescape = "*"
 number_prefix = "*"
 regex = "*"
 rustls = "*"
-openssl = { version = "*", features = ["vendored"] }
-actix-web = { version = "*", features = ["alpn", "brotli", "rust-tls"] }
+actix-web = { version = "*", features = ["brotli", "rust-tls"] }
 
 [profile.release]
 lto = true
