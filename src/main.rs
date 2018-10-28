@@ -3,7 +3,6 @@ extern crate lazy_static;
 extern crate bytes;
 extern crate futures;
 extern crate actix_web;
-extern crate openssl;
 extern crate rustls;
 extern crate mime;
 extern crate mime_guess;
@@ -13,7 +12,6 @@ extern crate regex;
 mod stream;
 mod ui;
 use actix_web::{actix::{Addr, Actor}, server, server::{RustlsAcceptor, ServerFlags}, client, client::ClientConnector, App, Body, http::{header, header::{HeaderValue, HeaderMap}, Method, ContentEncoding, StatusCode}, HttpRequest, HttpResponse, HttpMessage, AsyncResponder, Error};
-use openssl::ssl::{SslMethod, SslConnector, SslSessionCacheMode};
 use futures::{Stream, future::{Future, result}};
 use std::{process, cmp, fs, fs::File, path::Path, io::Read, io::BufReader, collections::HashMap, time::Duration};
 use mime_sniffer::MimeTypeSniffer;
@@ -305,10 +303,7 @@ lazy_static! {
 	static ref proxyx: RegexSet =  RegexSet::new(lproxyx.iter()).unwrap_or(RegexSet::new(&["$x"]).unwrap());
 	static ref blankheader: HeaderValue = HeaderValue::from_static("");
 	static ref clientconn: Addr<ClientConnector> = {
-		let mut builder = SslConnector::builder(SslMethod::tls()).unwrap();
-		builder.set_session_cache_mode(SslSessionCacheMode::BOTH);
-
-		ClientConnector::with_connector(builder.build())
+		ClientConnector::default()
 			.conn_lifetime(Duration::from_secs(config["streamTimeout"].as_u64().unwrap_or(20)*4))
 			.conn_keep_alive(Duration::from_secs(config["streamTimeout"].as_u64().unwrap_or(20)*4))
 			.start()
@@ -446,7 +441,6 @@ fn main() {
 				.default_resource(|r| r.f(index))
 		]
 	})
-		//.maxconn(64000).backlog(4096).maxconnrate(512).client_timeout(4000).client_shutdown(4000)
 		.keep_alive(config["streamTimeout"].as_usize().unwrap_or(20))
 		.bind_with(config["advanced"]["tlsAddr"].as_str().unwrap_or("[::]:443"), move || acceptor.clone())
 		.unwrap_or_else(|_err| {
