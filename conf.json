@@ -1,0 +1,36 @@
+{
+  "cachingTimeout": 4,
+  "streamTimeout": 20,
+  "proxy": [
+    {
+      "location": "proxy.local",
+      "host": "https://kittyhacker101.tk"
+    },
+    {
+      "location": "r#localhost/proxy[0-9]",
+      "host": "http://localhost:8080"
+    }
+  ],
+  "redir": [
+    {
+      "location": "localhost/redir2",
+      "dest": "https://kittyhacker101.tk"
+    },
+    {
+      "location": "localhost/redir",
+      "dest": "https://google.com"
+    },
+    {
+      "location": "r#localhost/redir3.*",
+      "dest": "https://kittyhacker101.tk"
+    }
+  ],
+  "hide": [
+    "src"
+  ],
+  "advanced": {
+    "protect": true,
+    "httpAddr": "[::]:8080",
+    "tlsAddr": "[::]:8181"
+  }
+}
