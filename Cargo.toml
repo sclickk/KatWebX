@@ -17,8 +17,9 @@ futures-cpupool = "*"
 htmlescape = "*"
 number_prefix = "*"
 regex = "*"
+rustls = "*"
 openssl = { version = "*", features = ["vendored"] }
-actix-web = { version = "*", features = ["alpn", "brotli"] }
+actix-web = { version = "*", features = ["alpn", "brotli", "rust-tls"] }
 
 [profile.release]
 lto = true
