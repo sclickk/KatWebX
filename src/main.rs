@@ -4,6 +4,7 @@ extern crate bytes;
 extern crate futures;
 extern crate actix_web;
 extern crate openssl;
+extern crate rustls;
 extern crate mime;
 extern crate mime_guess;
 extern crate mime_sniffer;
@@ -11,12 +12,13 @@ extern crate json;
 extern crate regex;
 mod stream;
 mod ui;
-use actix_web::{actix::{Addr, Actor}, server, client, client::ClientConnector, App, Body, http::{header, header::{HeaderValue, HeaderMap}, Method, ContentEncoding, StatusCode}, HttpRequest, HttpResponse, HttpMessage, AsyncResponder, Error};
-use openssl::ssl::{SslMethod, SslAcceptor, SslFiletype, SslConnector, SslSessionCacheMode};
+use actix_web::{actix::{Addr, Actor}, server, server::{RustlsAcceptor, ServerFlags}, client, client::ClientConnector, App, Body, http::{header, header::{HeaderValue, HeaderMap}, Method, ContentEncoding, StatusCode}, HttpRequest, HttpResponse, HttpMessage, AsyncResponder, Error};
+use openssl::ssl::{SslMethod, SslConnector, SslSessionCacheMode};
 use futures::{Stream, future::{Future, result}};
-use std::{process, cmp, fs, fs::File, path::Path, io::Read, collections::HashMap, time::Duration};
+use std::{process, cmp, fs, fs::File, path::Path, io::Read, io::BufReader, collections::HashMap, time::Duration};
 use mime_sniffer::MimeTypeSniffer;
 use regex::{Regex, NoExpand, RegexSet};
+use rustls::{NoClientAuth, ServerConfig, internal::pemfile::{certs, rsa_private_keys}};
 
 // The default configuration for the server to use.
 const DEFAULT_CONFIG: &str = r#"{"cachingTimeout":4,"streamTimeout":20,"proxy":[{"location":"proxy.local","host":"https://google.com"},{"location":"r#localhost\/proxy[0-9]","host":"https://kittyhacker101.tk"}],"redir":[{"location":"localhost/redir","dest":"https://kittyhacker101.tk"},{"location":"r#localhost/redir2.*","dest":"https://google.com"}],"hide":["src"],"advanced":{"protect":true,"httpAddr":"[::]:80","tlsAddr":"[::]:443"}}"#;
@@ -412,18 +414,16 @@ fn main() {
 		println!("[Warn]: Unable to write configuration!");
 	});
 
-	let mut builder = SslAcceptor::mozilla_modern(SslMethod::tls()).unwrap_or_else(|_err| {
-		println!("[Fatal]: Unable to create OpenSSL builder!");
-		process::exit(1);
-	});
-	builder.set_private_key_file("ssl/key.pem", SslFiletype::PEM).unwrap_or_else(|_err| {
-		println!("[Fatal]: Unable to load ssl/key.pem!");
-		process::exit(1);
-	});
-	builder.set_certificate_chain_file("ssl/cert.pem").unwrap_or_else(|_err| {
-		println!("[Fatal]: Unable to load ssl/cert.pem!");
-		process::exit(1);
-	});
+	let mut tconfig = ServerConfig::new(NoClientAuth::new());
+	let cert_file = &mut BufReader::new(File::open("ssl/cert.pem").unwrap());
+	let key_file = &mut BufReader::new(File::open("ssl/key.pem").unwrap());
+	let cert_chain = certs(cert_file).unwrap();
+	let mut keys = rsa_private_keys(key_file).unwrap();
+	tconfig.set_single_cert(cert_chain, keys.remove(0)).unwrap();
+	let acceptor = RustlsAcceptor::with_flags(
+		tconfig,
+		ServerFlags::HTTP1 | ServerFlags::HTTP2,
+	);
 
     server::new(|| {
         vec![
@@ -433,7 +433,7 @@ fn main() {
 	})
 		//.maxconn(64000).backlog(4096).maxconnrate(512).client_timeout(4000).client_shutdown(4000)
 		.keep_alive(config["streamTimeout"].as_usize().unwrap_or(20))
-		.bind_ssl(config["advanced"]["tlsAddr"].as_str().unwrap_or("[::]:443"), builder)
+		.bind_with(config["advanced"]["tlsAddr"].as_str().unwrap_or("[::]:443"), move || acceptor.clone())
 		.unwrap_or_else(|_err| {
 			println!("{}", ["[Fatal]: Unable to bind to ".to_owned(), config["advanced"]["tlsAddr"].as_str().unwrap_or("[::]:443").to_string(), "!".to_owned()].concat());
 			process::exit(1);
