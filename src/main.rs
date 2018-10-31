@@ -1,6 +1,6 @@
 #[macro_use]
 extern crate lazy_static;
-extern crate bytes;
+//extern crate bytes;
 extern crate futures;
 extern crate actix_web;
 extern crate rustls;
@@ -11,7 +11,7 @@ extern crate json;
 extern crate regex;
 mod stream;
 mod ui;
-use actix_web::{actix::{Addr, Actor}, server, server::{RustlsAcceptor, ServerFlags}, client, client::ClientConnector, App, Body, http::{header, header::{HeaderValue, HeaderMap}, Method, ContentEncoding, StatusCode}, HttpRequest, HttpResponse, HttpMessage, AsyncResponder, Error};
+use actix_web::{actix::{Addr, Actor}, server, server::{RustlsAcceptor, ServerFlags}, client, client::ClientConnector, App, Body, http::{header, header::{HeaderValue, HeaderMap}, Method, ContentEncoding, StatusCode}, HttpRequest, HttpResponse, HttpMessage, AsyncResponder, Error, fs::ChunkedReadFile};
 use futures::{Stream, future::{Future, result}};
 use std::{process, cmp, fs, fs::File, path::Path, io::Read, io::BufReader, collections::HashMap, time::Duration};
 use mime_sniffer::MimeTypeSniffer;
@@ -99,7 +99,6 @@ fn proxy_request(path: String, method: Method, headers: &HeaderMap, mut client_i
 					},
 				};
 			}
-			req.header("Connection", "keep-alive");
 			req.header("X-Forwarded-For", client_ip);
 		})
 		.set_header_if_none(header::ACCEPT_ENCODING, "none")
@@ -358,7 +357,7 @@ fn index(_req: &HttpRequest) -> Box<Future<Item=HttpResponse, Error=Error>> {
 
 	let (length, offset) = stream::calculate_ranges(_req, finfo.len());
 
-	let reader = stream::ChunkedReadFile {
+	let reader = ChunkedReadFile {
 		offset: offset,
 		size: length,
 		cpu_pool: _req.cpu_pool().clone(),
