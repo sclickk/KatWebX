@@ -13,12 +13,11 @@ mime_guess = "*"
 mime-sniffer = "*"
 lazy_static = "*"
 bytes = "*"
-futures-cpupool = "*"
 htmlescape = "*"
 number_prefix = "*"
 regex = "*"
 rustls = "*"
-actix-web = { version = "*", features = ["brotli", "rust-tls"] }
+actix-web = { git = "https://github.com/kittyhacker101/actix-web", features = ["brotli", "rust-tls"] }
 
 [profile.release]
 lto = true
