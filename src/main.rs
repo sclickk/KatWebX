@@ -1,6 +1,5 @@
 #[macro_use]
 extern crate lazy_static;
-//extern crate bytes;
 extern crate futures;
 extern crate actix_web;
 extern crate rustls;
@@ -111,8 +110,7 @@ fn proxy_request(path: String, method: Method, headers: &HeaderMap, mut client_i
 		Err(_) => return ui::http_error(StatusCode::BAD_GATEWAY, "502 Bad Gateway", "The server was acting as a proxy and received an invalid response from the upstream server."),
 	}
 
-	return req.send().map_err(Error::from)
-		.and_then(|resp| {
+	return req.send().and_then(|resp| {
 			Ok(HttpResponse::Ok()
 				.if_true(true, |req| {
 					for (key, value) in resp.headers().iter() {
@@ -127,6 +125,8 @@ fn proxy_request(path: String, method: Method, headers: &HeaderMap, mut client_i
 					}
 				})
 				.body(Body::Streaming(Box::new(resp.payload().from_err()))))
+		}).or_else(|_| {
+			return ui::http_error(StatusCode::BAD_GATEWAY, "502 Bad Gateway", "The server was acting as a proxy and received an invalid response from the upstream server.")
 		}).responder();
 }
 
