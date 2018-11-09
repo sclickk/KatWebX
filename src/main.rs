@@ -10,7 +10,7 @@ extern crate json;
 extern crate regex;
 mod stream;
 mod ui;
-use actix_web::{actix::{Addr, Actor}, server, server::{RustlsAcceptor, ServerFlags}, client, client::ClientConnector, App, Body, http::{header, header::{HeaderValue, HeaderMap}, Method, ContentEncoding, StatusCode}, HttpRequest, HttpResponse, HttpMessage, AsyncResponder, Error, fs::ChunkedReadFile};
+use actix_web::{actix::{Addr, Actor}, server, server::{RustlsAcceptor, ServerFlags}, client, client::ClientConnector, App, Body, http::{header, header::{HeaderValue, HeaderMap}, Method, ContentEncoding, StatusCode}, HttpRequest, HttpResponse, HttpMessage, AsyncResponder, Error};
 use futures::{Stream, future::{Future, result}};
 use std::{process, cmp, fs, fs::File, path::Path, io::Read, io::BufReader, collections::HashMap, time::Duration};
 use mime_sniffer::MimeTypeSniffer;
@@ -357,7 +357,7 @@ fn index(_req: &HttpRequest) -> Box<Future<Item=HttpResponse, Error=Error>> {
 
 	let (length, offset) = stream::calculate_ranges(_req, finfo.len());
 
-	let reader = ChunkedReadFile {
+	let reader = stream::ChunkedReadFile {
 		offset: offset,
 		size: length,
 		cpu_pool: _req.cpu_pool().clone(),
