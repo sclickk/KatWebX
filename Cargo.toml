@@ -8,6 +8,8 @@ authors = ["kittyhacker101 <kittyhacker101@protonmail.com>"]
 [dependencies]
 json = "*"
 futures = "*"
+futures-cpupool = "*"
+bytes = "*"
 mime = "*"
 mime_guess = "*"
 mime-sniffer = "*"
