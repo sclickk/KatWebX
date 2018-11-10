@@ -8,6 +8,7 @@ extern crate mime_guess;
 extern crate mime_sniffer;
 extern crate json;
 extern crate regex;
+extern crate bytes;
 mod stream;
 mod ui;
 use actix_web::{actix::{Addr, Actor}, server, server::{RustlsAcceptor, ServerFlags}, client, client::ClientConnector, App, Body, http::{header, header::{HeaderValue, HeaderMap}, Method, ContentEncoding, StatusCode}, HttpRequest, HttpResponse, HttpMessage, AsyncResponder, Error};

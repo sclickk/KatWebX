@@ -4,6 +4,9 @@ extern crate actix_web;
 extern crate futures;
 extern crate futures_cpupool;
 
+use futures::{Async, Future, Poll, Stream};
+use bytes::Bytes;
+use std::{io, io::Seek, fs::File, cmp, io::Read};
 use actix_web::{HttpRequest, http::header};
 
 pub fn calculate_ranges(req: &HttpRequest, length: u64) -> (u64, u64) {
