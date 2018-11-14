@@ -9,7 +9,7 @@ KatWebX is an early work in progress, and you will encounter bugs. **Do not use 
 - [x] Server-side redirects
 - [x] Regex-based redirects
 - [x] Flexible config parsing
-- [x] Fast reverse proxy
+- [x] Fast reverse proxy (mostly implemented, has some issues)
 - [ ] Websocket reverse proxy
 - [x] Regex-based reverse proxying
 - [x] Automatic proxy compression
@@ -17,7 +17,7 @@ KatWebX is an early work in progress, and you will encounter bugs. **Do not use 
 - [ ] Regex-based auth
 - [x] Fast file serving
 - [ ] Brotli file compression
-- [ ] HSTS support
+- [x] HSTS support
 - [x] HTTP/2 and HTTP/1.1 support
 - [x] High peformance TLS 1.3
 - [ ] SNI support
