@@ -134,7 +134,7 @@ fn proxy_request(path: String, method: Method, headers: &HeaderMap, mut client_i
 
 // Trim the port from an IPv4 address, IPv6 address, or domain:port.
 fn trim_port(path: String) -> String {
-	if path.contains("[") && path.contains("]:") {
+	if path.contains("[") && path.contains("]") {
 		match path.rfind("]:") {
 			Some(i) => return path[..i+1].to_string(),
 			None => return path,
@@ -144,6 +144,21 @@ fn trim_port(path: String) -> String {
 	match path.rfind(":") {
 		Some(i) => return path[..i].to_string(),
 		None => return path,
+	}
+}
+
+// Trim the host from an IPv4 address, IPv6 address, or domain:port.
+fn trim_host(path: String) -> String {
+	if path.contains("[") && path.contains("]") {
+		match path.rfind("]:") {
+			Some(i) => return path[i+1..].to_string(),
+			None => return "".to_owned(),
+		}
+	}
+
+	match path.rfind(":") {
+		Some(i) => return path[i..].to_string(),
+		None => return "".to_owned(),
 	}
 }
 
@@ -315,6 +330,15 @@ lazy_static! {
 fn index(_req: &HttpRequest) -> Box<Future<Item=HttpResponse, Error=Error>> {
 	let conn_info = _req.connection_info();
 
+	if config["hsts"].as_bool().unwrap_or(false) && conn_info.scheme() == "http" {
+		let mut host = trim_port(conn_info.host().to_string());
+		let tls_host = config["advanced"]["tlsAddr"].as_str().unwrap_or("[::]:443");
+		if trim_host(tls_host.to_string()) != ":443" {
+			host = host + &trim_host(tls_host.to_string()).to_string();
+		}
+		return redir(&["https://".to_string(), host, _req.path().to_string()].concat());
+	}
+
 	let (path, host, fp) = handle_path(_req.path().to_string(), conn_info.host().to_string());
 	//println!("{:?}", [trim_port(conn_info.host().to_string()), _req.path().to_string()].concat());
 
@@ -383,6 +407,9 @@ fn index(_req: &HttpRequest) -> Box<Future<Item=HttpResponse, Error=Error>> {
 			.if_true(cache_int != 0, |builder| {
 				builder.header(header::CACHE_CONTROL, ["max-age=".to_owned(), (cache_int*3600).to_string(), ", public, stale-while-revalidate=".to_owned(), (cache_int*900).to_string()].concat());
 			})
+			.if_true(config["hsts"].as_bool().unwrap_or(false), |builder| {
+				builder.header(header::STRICT_TRANSPORT_SECURITY, "max-age=31536000;includeSubDomains;preload");
+			})
 			.if_true(config["advanced"]["protect"].as_bool().unwrap_or(false), |builder| {
 				builder.header(header::REFERRER_POLICY, "no-referrer");
 				builder.header(header::X_CONTENT_TYPE_OPTIONS, "nosniff");
@@ -438,7 +465,21 @@ fn main() {
 		ServerFlags::HTTP1 | ServerFlags::HTTP2,
 	);
 
+	// HTTPS request handling
     server::new(|| {
+		App::new()
+			.default_resource(|r| r.f(index))
+	})
+		.keep_alive(config["streamTimeout"].as_usize().unwrap_or(20))
+		.bind_with(config["advanced"]["tlsAddr"].as_str().unwrap_or("[::]:443"), move || acceptor.clone())
+		.unwrap_or_else(|_err| {
+			println!("{}", ["[Fatal]: Unable to bind to ".to_owned(), config["advanced"]["tlsAddr"].as_str().unwrap_or("[::]:443").to_string(), "!".to_owned()].concat());
+			process::exit(1);
+		})
+        .start();
+
+	// HTTP request handling
+	server::new(|| {
 		App::new()
 			.default_resource(|r| r.f(index))
 	})
@@ -448,12 +489,7 @@ fn main() {
 			println!("{}", ["[Fatal]: Unable to bind to ".to_owned(), config["advanced"]["httpAddr"].as_str().unwrap_or("[::]:80").to_string(), "!".to_owned()].concat());
 			process::exit(1);
 		})
-		.bind_with(config["advanced"]["tlsAddr"].as_str().unwrap_or("[::]:443"), move || acceptor.clone())
-		.unwrap_or_else(|_err| {
-			println!("{}", ["[Fatal]: Unable to bind to ".to_owned(), config["advanced"]["tlsAddr"].as_str().unwrap_or("[::]:443").to_string(), "!".to_owned()].concat());
-			process::exit(1);
-		})
-        .start();
+	    .start();
 
 	println!("[Info]: Started KatWebX.");
 	let _ = sys.run();
