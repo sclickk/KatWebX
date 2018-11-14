@@ -1,6 +1,7 @@
 #[macro_use]
 extern crate lazy_static;
 extern crate futures;
+extern crate actix;
 extern crate actix_web;
 extern crate rustls;
 extern crate mime;
@@ -395,6 +396,8 @@ fn index(_req: &HttpRequest) -> Box<Future<Item=HttpResponse, Error=Error>> {
 
 // Load configuration, SSL certs, then attempt to start the program.
 fn main() {
+	println!("[Info]: Starting KatWebX...");
+	let sys = actix::System::new("katwebx");
 	lazy_static::initialize(&hidden);
 	lazy_static::initialize(&hiddenx);
 	lazy_static::initialize(&lredir);
@@ -436,21 +439,22 @@ fn main() {
 	);
 
     server::new(|| {
-        vec![
-			App::new()
-				.default_resource(|r| r.f(index))
-		]
+		App::new()
+			.default_resource(|r| r.f(index))
 	})
 		.keep_alive(config["streamTimeout"].as_usize().unwrap_or(20))
-		.bind_with(config["advanced"]["tlsAddr"].as_str().unwrap_or("[::]:443"), move || acceptor.clone())
-		.unwrap_or_else(|_err| {
-			println!("{}", ["[Fatal]: Unable to bind to ".to_owned(), config["advanced"]["tlsAddr"].as_str().unwrap_or("[::]:443").to_string(), "!".to_owned()].concat());
-			process::exit(1);
-		})
 		.bind(config["advanced"]["httpAddr"].as_str().unwrap_or("[::]:80"))
 		.unwrap_or_else(|_err| {
 			println!("{}", ["[Fatal]: Unable to bind to ".to_owned(), config["advanced"]["httpAddr"].as_str().unwrap_or("[::]:80").to_string(), "!".to_owned()].concat());
 			process::exit(1);
 		})
-        .run();
+		.bind_with(config["advanced"]["tlsAddr"].as_str().unwrap_or("[::]:443"), move || acceptor.clone())
+		.unwrap_or_else(|_err| {
+			println!("{}", ["[Fatal]: Unable to bind to ".to_owned(), config["advanced"]["tlsAddr"].as_str().unwrap_or("[::]:443").to_string(), "!".to_owned()].concat());
+			process::exit(1);
+		})
+        .start();
+
+	println!("[Info]: Started KatWebX.");
+	let _ = sys.run();
 }
