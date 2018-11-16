@@ -205,11 +205,22 @@ fn redir(path: &str) -> Box<Future<Item=HttpResponse, Error=Error>> {
 
 // Return a MIME type based on file extension.
 // If the file extension is not known, attempt to guess the mime type.
-fn get_mime(data: &Vec<u8>, path: &str) -> String {
+fn get_mime(path: &str) -> String {
 	let mut mime = mime_guess::guess_mime_type(path).to_string();
 	if mime == "application/octet-stream" {
+		let (mut f, finfo);
+		match open_meta(path) {
+			Ok((fi, m)) => {f = fi; finfo = m},
+			Err(_) => {
+				return mime
+			}
+		}
+
+		let mut sniffer_data = vec![0; cmp::min(512, finfo.len() as usize)];
+		f.read_exact(&mut sniffer_data).unwrap_or(());
+
 		let mreq = mime_sniffer::HttpRequest {
-			content: data,
+			content: &sniffer_data,
 			url: &["http://localhost", path].concat(),
 			type_hint: "",
 		};
@@ -356,13 +367,21 @@ fn index(_req: &HttpRequest) -> Box<Future<Item=HttpResponse, Error=Error>> {
 		return ui::http_error(StatusCode::METHOD_NOT_ALLOWED, "405 Method Not Allowed", "Only GET and HEAD methods are supported.")
 	}
 
-	let full_path = match fp {
+	let mut full_path = match fp {
 		Some(pf) => pf,
 		None => [&*host, &*path].concat(),
 	};
 
-	let (mut f, finfo);
+	let ce = _req.headers().get(header::ACCEPT_ENCODING);
+	if ce == Some(&HeaderValue::from_static("br")) {
+		if Path::new(&[&full_path, ".br"].concat()).exists() {
+			full_path = [&full_path, ".br"].concat()
+		} /* else if Path::new(&full_path).exists() && {
 
+		} */
+	}
+
+	let (f, finfo);
 	match open_meta(&full_path) {
 		Ok((fi, m)) => {f = fi; finfo = m},
 		Err(_) => {
@@ -378,9 +397,6 @@ fn index(_req: &HttpRequest) -> Box<Future<Item=HttpResponse, Error=Error>> {
 		return redir(&[_req.path(), "/"].concat());
 	}
 
-	let mut sniffer_data = vec![0; cmp::min(512, finfo.len() as usize)];
-	f.read_exact(&mut sniffer_data).unwrap_or(());
-
 	let (length, offset) = stream::calculate_ranges(_req, finfo.len());
 
 	let reader = stream::ChunkedReadFile {
@@ -395,7 +411,7 @@ fn index(_req: &HttpRequest) -> Box<Future<Item=HttpResponse, Error=Error>> {
 	let cache_int = config["cachingTimeout"].as_i64().unwrap_or(0);
 	result(Ok(
 		HttpResponse::Ok()
-	        .content_type(get_mime(&sniffer_data, &full_path))
+	        .content_type(get_mime(&full_path))
 			.header(header::ACCEPT_RANGES, "bytes")
 			.content_encoding(ContentEncoding::Identity)
 			.if_true(offset != 0, |builder| {
