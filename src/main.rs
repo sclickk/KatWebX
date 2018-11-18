@@ -20,7 +20,7 @@ use regex::{Regex, NoExpand, RegexSet};
 use rustls::{NoClientAuth, ServerConfig, internal::pemfile::{certs, rsa_private_keys}};
 
 // The default configuration for the server to use.
-const DEFAULT_CONFIG: &str = r#"{"cachingTimeout":4,"streamTimeout":20,"proxy":[{"location":"proxy.local","host":"https://google.com"},{"location":"r#localhost\/proxy[0-9]","host":"https://kittyhacker101.tk"}],"redir":[{"location":"localhost/redir","dest":"https://kittyhacker101.tk"},{"location":"r#localhost/redir2.*","dest":"https://google.com"}],"hide":["src"],"advanced":{"protect":true,"httpAddr":"[::]:80","tlsAddr":"[::]:443"}}"#;
+const DEFAULT_CONFIG: &str = r#"{"cachingTimeout":4,"streamTimeout":20,"hsts":false,"proxy":[{"location":"proxy.local","host":"https://google.com"},{"location":"r#localhost\/proxy[0-9]","host":"https://kittyhacker101.tk"}],"redir":[{"location":"localhost/redir","dest":"https://kittyhacker101.tk"},{"location":"r#localhost/redir2.*","dest":"https://google.com"}],"hide":["src"],"advanced":{"protect":true,"compressfiles":true,"httpAddr":"[::]:80","tlsAddr":"[::]:443"}}"#;
 
 // Generate the correct host and path, from raw data.
 // Hidden hosts can be virtual-host based (hidden.local) or regex-based.
@@ -378,14 +378,19 @@ fn index(_req: &HttpRequest) -> Box<Future<Item=HttpResponse, Error=Error>> {
 	let mim = trim_suffix("; charset=utf-8".to_string(), mime.to_string());
 
 	// If the client accepts a brotli compressed response, then modify full_path to send one.
-	// TODO: Add a config option to disable brotli.
 	let be = &HeaderValue::from_static("");
 	let ce = _req.headers().get(header::ACCEPT_ENCODING).unwrap_or(be).to_str().unwrap_or("");
 	if ce.contains("br") {
-		match stream::get_compressed_file(&*full_path, mim) {
-			Ok(path) => full_path = path,
-			Err(_) => (),
-		};
+		if config["advanced"]["compressfiles"].as_bool().unwrap_or(false) {
+			match stream::get_compressed_file(&*full_path, mim) {
+				Ok(path) => full_path = path,
+				Err(_) => (),
+			}
+		} else {
+			if Path::new(&[&full_path, ".br"].concat()).exists() {
+				full_path = [&full_path, ".br"].concat()
+			}
+		}
 	}
 
 	// Open the file specified in full_path. If the file is not present, serve either a directory listing or an error.
