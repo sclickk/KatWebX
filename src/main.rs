@@ -359,6 +359,7 @@ fn index(_req: &HttpRequest) -> Box<Future<Item=HttpResponse, Error=Error>> {
 		}
 		return redir(&path);
 	}
+
 	if host == "proxy" {
 		return proxy_request(path, _req.method().to_owned(), _req.headers(), conn_info.remote().unwrap_or("127.0.0.1").to_string())
 	}
@@ -372,15 +373,20 @@ fn index(_req: &HttpRequest) -> Box<Future<Item=HttpResponse, Error=Error>> {
 		None => [&*host, &*path].concat(),
 	};
 
-	let ce = _req.headers().get(header::ACCEPT_ENCODING);
-	if ce == Some(&HeaderValue::from_static("br")) {
-		if Path::new(&[&full_path, ".br"].concat()).exists() {
-			full_path = [&full_path, ".br"].concat()
-		} /* else if Path::new(&full_path).exists() && {
+	let mime = get_mime(&full_path);
+	let mim = trim_suffix("; charset=utf-8".to_string(), mime.to_string());
 
-		} */
+	// If the client accepts a brotli compressed response, then modify full_path to send one.
+	let be = &HeaderValue::from_static("");
+	let ce = _req.headers().get(header::ACCEPT_ENCODING).unwrap_or(be).to_str().unwrap_or("");
+	if ce.contains("br") {
+		match stream::get_compressed_file(&*full_path, mim) {
+			Ok(path) => full_path = path,
+			Err(_) => (),
+		};
 	}
 
+	// Open the file specified in full_path. If the file is not present, serve either a directory listing or an error.
 	let (f, finfo);
 	match open_meta(&full_path) {
 		Ok((fi, m)) => {f = fi; finfo = m},
@@ -389,7 +395,7 @@ fn index(_req: &HttpRequest) -> Box<Future<Item=HttpResponse, Error=Error>> {
 				return ui::dir_listing(&[&*host, _req.path()].concat(), &host)
 			}
 
-			return ui::http_error(StatusCode::NOT_FOUND, "404 Not Found", &["The resource ", _req.path(), " could not be found."].concat())
+			return ui::http_error(StatusCode::NOT_FOUND, "404 Not Found", &["The resource ", _req.path(), " could not be found."].concat());
 		}
 	}
 
@@ -397,8 +403,8 @@ fn index(_req: &HttpRequest) -> Box<Future<Item=HttpResponse, Error=Error>> {
 		return redir(&[_req.path(), "/"].concat());
 	}
 
+	// Parse a ranges header if it is present, and then turn a File into a stream.
 	let (length, offset) = stream::calculate_ranges(_req, finfo.len());
-
 	let reader = stream::ChunkedReadFile {
 		offset: offset,
 		size: length,
@@ -408,12 +414,19 @@ fn index(_req: &HttpRequest) -> Box<Future<Item=HttpResponse, Error=Error>> {
 		counter: 0,
 	};
 
+	// Craft a response.
 	let cache_int = config["cachingTimeout"].as_i64().unwrap_or(0);
 	result(Ok(
 		HttpResponse::Ok()
-	        .content_type(get_mime(&full_path))
+	        .content_type(&*mime)
 			.header(header::ACCEPT_RANGES, "bytes")
-			.content_encoding(ContentEncoding::Identity)
+			.if_true(full_path.ends_with(".br"), |builder| {
+				builder.header(header::CONTENT_ENCODING, "br");
+				builder.content_encoding(ContentEncoding::Identity);
+			})
+			.if_true(!full_path.ends_with(".br") && stream::gztypes.binary_search(&&*mime).is_ok(), |builder| {
+				builder.content_encoding(ContentEncoding::Auto);
+			})
 			.if_true(offset != 0, |builder| {
 				builder.header(header::CONTENT_RANGE, ["bytes ", &offset.to_string(), "-", &(offset+length-1).to_string(), "/", &finfo.len().to_string()].concat());
 			})

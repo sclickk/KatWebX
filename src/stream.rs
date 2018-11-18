@@ -1,13 +1,37 @@
-// Copied from actix-web, with minor modifications. Actix Copyright (c) 2017 Nikolay Kim
+// Mostly copied from actix-web. Actix Copyright (c) 2017 Nikolay Kim
 // Original source: https://github.com/actix/actix-web/blob/v0.7.8/src/fs.rs
+extern crate lazy_static;
 extern crate actix_web;
 extern crate futures;
 extern crate futures_cpupool;
+extern crate brotli;
 
 use futures::{Async, Future, Poll, Stream};
 use bytes::Bytes;
-use std::{io, io::Seek, fs::File, cmp, io::Read};
+use std::{io, io::{Error, Seek, Read}, fs::File, cmp, path::Path};
 use actix_web::{HttpRequest, http::header};
+use self::brotli::{BrotliCompress, enc::encode::BrotliEncoderInitParams};
+
+lazy_static! {
+	pub static ref gztypes: Vec<&'static str> = vec!["application/javascript", "application/json", "application/x-javascript", "image/svg+xml", "text/css", "text/csv", "text/html", "text/plain", "text/xml"];
+}
+
+pub fn get_compressed_file(path: &str, mime: String) -> Result<String, Error> {
+	if Path::new(&[path, ".br"].concat()).exists() {
+		return Ok([path, ".br"].concat())
+	}
+
+	if Path::new(&path).exists() && !Path::new(&[&path, ".br"].concat()).exists() {
+		if gztypes.binary_search(&&*mime).is_ok() {
+			let mut fileold = File::open(path)?;
+			let mut filenew = File::create(&[path, ".br"].concat())?;
+			let _ = BrotliCompress(&mut fileold, &mut filenew, &BrotliEncoderInitParams())?;
+			return Ok([path, ".br"].concat())
+		}
+	}
+
+	return Ok(path.to_string());
+}
 
 pub fn calculate_ranges(req: &HttpRequest, length: u64) -> (u64, u64) {
 	if let Some(ranges) = req.headers().get(header::RANGE) {
