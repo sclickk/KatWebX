@@ -17,8 +17,10 @@ lazy_static = "*"
 htmlescape = "*"
 number_prefix = "*"
 regex = "*"
+brotli = "*"
 rustls = "*"
-actix-web = { git = "https://github.com/actix/actix-web", features = ["brotli", "rust-tls"] }
+actix = "*"
+actix-web = { git = "https://github.com/actix/actix-web", default-features = false, features = ["flate2-c", "rust-tls"] }
 
 [profile.release]
 lto = true
