@@ -196,10 +196,11 @@ fn redir(path: &str) -> Box<Future<Item=HttpResponse, Error=Error>> {
 	return result(Ok(
 		HttpResponse::Ok()
 			.status(StatusCode::PERMANENT_REDIRECT)
+			.content_encoding(ContentEncoding::Auto)
 			.header(header::LOCATION, path)
-			.header(header::SERVER, "KatWebX-Alpha")
+			.header(header::SERVER, "KatWebX")
 			.content_type("text/html; charset=utf-8")
-			.body(["<a href='", path, "'>Click here</a>"].concat())))
+			.body(["<a href='", path, "'>If this redirect does not work, click here</a>"].concat())))
 			.responder();
 }
 
@@ -377,6 +378,7 @@ fn index(_req: &HttpRequest) -> Box<Future<Item=HttpResponse, Error=Error>> {
 	let mim = trim_suffix("; charset=utf-8".to_string(), mime.to_string());
 
 	// If the client accepts a brotli compressed response, then modify full_path to send one.
+	// TODO: Add a config option to disable brotli.
 	let be = &HeaderValue::from_static("");
 	let ce = _req.headers().get(header::ACCEPT_ENCODING).unwrap_or(be).to_str().unwrap_or("");
 	if ce.contains("br") {
