@@ -114,6 +114,7 @@ fn proxy_request(path: String, method: Method, headers: &HeaderMap, mut client_i
 
 	return req.send().and_then(|resp| {
 			Ok(HttpResponse::Ok()
+				.status(resp.status())
 				.if_true(true, |req| {
 					for (key, value) in resp.headers().iter() {
 						if key == header::CONTENT_LENGTH {
@@ -124,6 +125,13 @@ fn proxy_request(path: String, method: Method, headers: &HeaderMap, mut client_i
 							req.content_encoding(ContentEncoding::Identity);
 						}
 						req.header(key.to_owned(), value.to_owned());
+					}
+
+					match resp.cookies() {
+						Ok(c) => {for ck in c.iter() {
+							req.cookie(ck.to_owned());
+						}},
+						Err(_) => (),
 					}
 				})
 				.body(Body::Streaming(Box::new(resp.payload().from_err()))))
