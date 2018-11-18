@@ -10,7 +10,7 @@ KatWebX is an early work in progress, and you will encounter bugs. **Do not use 
 - [x] Regex-based redirects
 - [x] Flexible config parsing
 - [x] Compressed reverse proxy
-- [ ] Caching reverse proxy
+- [ ] Caching proxy support
 - [ ] Websocket reverse proxy
 - [x] Regex-based reverse proxying
 - [x] Automatic proxy compression
