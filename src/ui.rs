@@ -30,7 +30,6 @@ pub fn dir_listing(path: &str, trim: &str) -> Box<Future<Item=HttpResponse, Erro
 
 	let mut html = [HEAD, "<title>Directory listing of ", &path[trim.len()..], "</title><h1 class=ok>", FOLDERSVG, "Directory listing of ", &path[trim.len()..], "</h1><table><tr><td><span>Name</span></td><td><span>Size</span></td></tr><tr><td><a href='..'>", BACKSVG, "Back</a></td></tr>"].concat();
 
-	// TODO: Review this code, and clean it up.
 	for fpath in f {
 		let fstr = fpath.unwrap().path();
 		let (name, size, icon);
