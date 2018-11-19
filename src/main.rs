@@ -12,8 +12,8 @@ extern crate regex;
 extern crate bytes;
 mod stream;
 mod ui;
-use actix_web::{actix::{Addr, Actor}, server, server::{RustlsAcceptor, ServerFlags}, client, client::ClientConnector, App, Body, http::{header, header::{HeaderValue, HeaderMap}, Method, ContentEncoding, StatusCode}, HttpRequest, HttpResponse, HttpMessage, AsyncResponder, Error};
-use futures::{Stream, future::{Future, result}};
+use actix_web::{actix::{Addr, Actor}, server, server::{RustlsAcceptor, ServerFlags}, client, client::ClientConnector, App, http::{header, header::{HeaderValue, HeaderMap}, Method, ContentEncoding, StatusCode}, HttpRequest, HttpResponse, HttpMessage, AsyncResponder, Error, dev::Payload};
+use futures::future::{Future, result};
 use std::{process, cmp, fs, fs::File, path::Path, io::Read, io::BufReader, collections::HashMap, time::Duration};
 use mime_sniffer::MimeTypeSniffer;
 use regex::{Regex, NoExpand, RegexSet};
@@ -85,7 +85,7 @@ fn handle_path(mut path: String, mut host: String) -> (String, String, Option<St
 // Reverse proxy a request, passing through any compression.
 // This cannot proxy websockets, because it removes the "Connection" HTTP header.
 // Hop-by-hop headers are removed, to allow connection reuse.
-fn proxy_request(path: String, method: Method, headers: &HeaderMap, mut client_ip: String) -> Box<Future<Item=HttpResponse, Error=Error>> {
+fn proxy_request(path: String, method: Method, headers: &HeaderMap, body: Payload, mut client_ip: String) -> Box<Future<Item=HttpResponse, Error=Error>> {
 	let re = client::ClientRequest::build()
 		.with_connector(clientconn.clone())
 		.uri(path).method(method).disable_decompress()
@@ -104,7 +104,7 @@ fn proxy_request(path: String, method: Method, headers: &HeaderMap, mut client_i
 		})
 		.set_header_if_none(header::ACCEPT_ENCODING, "none")
 		.set_header_if_none(header::USER_AGENT, "KatWebX-Proxy")
-		.finish();
+		.streaming(body);
 
 	let req;
 	match re {
@@ -134,7 +134,7 @@ fn proxy_request(path: String, method: Method, headers: &HeaderMap, mut client_i
 						Err(_) => (),
 					}
 				})
-				.body(Body::Streaming(Box::new(resp.payload().from_err()))))
+				.streaming(resp.payload()))
 		}).or_else(|_| {
 			return ui::http_error(StatusCode::BAD_GATEWAY, "502 Bad Gateway", "The server was acting as a proxy and received an invalid response from the upstream server.")
 		}).responder();
@@ -370,7 +370,7 @@ fn index(_req: &HttpRequest) -> Box<Future<Item=HttpResponse, Error=Error>> {
 	}
 
 	if host == "proxy" {
-		return proxy_request(path, _req.method().to_owned(), _req.headers(), conn_info.remote().unwrap_or("127.0.0.1").to_string())
+		return proxy_request(path, _req.method().to_owned(), _req.headers(), _req.payload(), conn_info.remote().unwrap_or("127.0.0.1").to_string())
 	}
 
 	if _req.method() != Method::GET && _req.method() != Method::HEAD {
