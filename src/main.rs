@@ -20,7 +20,7 @@ use regex::{Regex, NoExpand, RegexSet};
 use rustls::{NoClientAuth, ServerConfig, internal::pemfile::{certs, rsa_private_keys}};
 
 // The default configuration for the server to use.
-const DEFAULT_CONFIG: &str = r#"{"cachingTimeout":4,"streamTimeout":20,"hsts":false,"proxy":[{"location":"proxy.local","host":"https://google.com"},{"location":"r#localhost\/proxy[0-9]","host":"https://kittyhacker101.tk"}],"redir":[{"location":"localhost/redir","dest":"https://kittyhacker101.tk"},{"location":"r#localhost/redir2.*","dest":"https://google.com"}],"hide":["src"],"advanced":{"protect":true,"compressfiles":true,"httpAddr":"[::]:80","tlsAddr":"[::]:443"}}"#;
+const DEFAULT_CONFIG: &str = r#"{"cachingTimeout":4,"streamTimeout":20,"hsts":false,"proxy":[{"location":"proxy.local","host":"https://kittyhacker101.tk"},{"location":"r#localhost\/proxy[0-9]","host":"https://kittyhacker101.tk"}],"redir":[{"location":"localhost/redir","dest":"https://kittyhacker101.tk"},{"location":"r#localhost/redir2.*","dest":"https://google.com"}],"hide":["src", "r#tar.*"],"advanced":{"protect":true,"compressfiles":true,"httpAddr":"[::]:80","tlsAddr":"[::]:443"}}"#;
 
 // Generate the correct host and path, from raw data.
 // Hidden hosts can be virtual-host based (hidden.local) or regex-based.
@@ -537,4 +537,63 @@ fn main() {
 
 	println!("[Info]: Started KatWebX.");
 	let _ = sys.run();
+}
+
+// Unit tests for critical internal functions.
+// WARNING: The config.json file must have default values when running these tests.
+#[cfg(test)]
+mod tests {
+	use *;
+	#[test]
+	fn test_trim_port() {
+		assert_eq!(trim_port("127.0.0.1:8080".to_owned()), "127.0.0.1");
+		assert_eq!(trim_port("127.0.0.1".to_owned()), "127.0.0.1");
+		assert_eq!(trim_port("[::1]:8081".to_owned()), "[::1]");
+		assert_eq!(trim_port("[::1]".to_owned()), "[::1]");
+	}
+	#[test]
+	fn test_trim_host() {
+		assert_eq!(trim_host("127.0.0.1:8080".to_owned()), ":8080");
+		assert_eq!(trim_host("127.0.0.1".to_owned()), "");
+		assert_eq!(trim_host("[::1]:8081".to_owned()), ":8081");
+		assert_eq!(trim_host("[::1]".to_owned()), "");
+	}
+	#[test]
+	fn test_trim_prefix() {
+		assert_eq!(trim_prefix("str".to_owned(), "string".to_owned()), "ing");
+		assert_eq!(trim_prefix("no".to_owned(), "string".to_owned()), "string");
+		assert_eq!(trim_prefix("ing".to_owned(), "string".to_owned()), "");
+	}
+	#[test]
+	fn test_trim_suffix() {
+		assert_eq!(trim_suffix("ing".to_owned(), "string".to_owned()), "str");
+		assert_eq!(trim_suffix("no".to_owned(), "string".to_owned()), "string");
+		assert_eq!(trim_suffix("str".to_owned(), "string".to_owned()), "");
+	}
+	#[test]
+	fn test_handle_path_base() {
+		assert_eq!(handle_path("/index.html".to_owned(), "localhost".to_owned()), ("./".to_owned(), "redir".to_owned(), None));
+		assert_eq!(handle_path("/test/..".to_owned(), "localhost".to_owned()), ("..".to_owned(), "redir".to_owned(), None));
+
+		assert_eq!(handle_path("/".to_owned(), "H".to_owned()), ("/index.html".to_owned(), "html".to_owned(), Some("html/index.html".to_owned())));
+		assert_eq!(handle_path("/".to_owned(), "...".to_owned()), ("/index.html".to_owned(), "html".to_owned(), Some("html/index.html".to_owned())));
+		assert_eq!(handle_path("/".to_owned(), "/home".to_owned()), ("/index.html".to_owned(), "html".to_owned(), Some("html/index.html".to_owned())));
+		assert_eq!(handle_path("/".to_owned(), "C:\\".to_owned()), ("/index.html".to_owned(), "html".to_owned(), Some("html/index.html".to_owned())));
+
+		assert_eq!(handle_path("/".to_owned(), "ssl".to_owned()), ("/index.html".to_owned(), "html".to_owned(), Some("html/index.html".to_owned())));
+		assert_eq!(handle_path("/".to_owned(), "nonexistenthost".to_owned()), ("/index.html".to_owned(), "html".to_owned(), Some("html/index.html".to_owned())));
+	}
+	#[test]
+	fn test_handle_path_routing() {
+		assert_eq!(handle_path("/redir".to_owned(), "localhost".to_owned()), ("https://kittyhacker101.tk".to_owned(), "redir".to_owned(), None));
+		assert_eq!(handle_path("/redir2a".to_owned(), "localhost".to_owned()), ("https://google.com".to_owned(), "redir".to_owned(), None));
+
+		assert_eq!(handle_path("/links.html".to_owned(), "proxy.local".to_owned()), ("https://kittyhacker101.tk/links.html".to_owned(), "proxy".to_owned(), None));
+		assert_eq!(handle_path("/proxy0/links.html".to_owned(), "localhost".to_owned()), ("https://kittyhacker101.tk/links.html".to_owned(), "proxy".to_owned(), None));
+
+		assert_eq!(handle_path("/".to_owned(), "src".to_owned()), ("/index.html".to_owned(), "html".to_owned(), Some("html/index.html".to_owned())));
+		assert_eq!(handle_path("/".to_owned(), "target".to_owned()), ("/index.html".to_owned(), "html".to_owned(), Some("html/index.html".to_owned())));
+		assert_eq!(handle_path("/".to_owned(), "html".to_owned()), ("/index.html".to_owned(), "html".to_owned(), Some("html/index.html".to_owned())));
+
+	}
 }
