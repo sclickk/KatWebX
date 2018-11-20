@@ -22,6 +22,94 @@ use rustls::{NoClientAuth, ServerConfig, internal::pemfile::{certs, rsa_private_
 // The default configuration for the server to use.
 const DEFAULT_CONFIG: &str = r#"{"cachingTimeout":4,"streamTimeout":20,"hsts":false,"proxy":[{"location":"proxy.local","host":"https://kittyhacker101.tk"},{"location":"r#localhost\/proxy[0-9]","host":"https://kittyhacker101.tk"}],"redir":[{"location":"localhost/redir","dest":"https://kittyhacker101.tk"},{"location":"r#localhost/redir2.*","dest":"https://google.com"}],"hide":["src", "r#tar.*"],"advanced":{"protect":true,"compressfiles":true,"httpAddr":"[::]:80","tlsAddr":"[::]:443"}}"#;
 
+struct Config {
+	caching_timeout: i64,
+	stream_timeout: u64,
+	hsts: bool,
+	hidden: Vec<String>,
+	lredir: Vec<String>,
+	lproxy: Vec<String>,
+	lredirx: Vec<String>,
+	lproxyx: Vec<String>,
+	hiddenx: RegexSet,
+	redirx: RegexSet,
+	proxyx: RegexSet,
+	redirmap: HashMap<String, String>,
+	proxymap: HashMap<String, String>,
+	protect: bool,
+	compress_files: bool,
+	http_addr: &'static str,
+	tls_addr: &'static str,
+}
+
+fn load_config() -> Config {
+	lazy_static! {
+		static ref rawconf: String = fs::read_to_string("conf.json").unwrap_or(DEFAULT_CONFIG.to_owned());
+		static ref confj: json::JsonValue<> = json::parse(&rawconf).unwrap_or_else(|_err| {
+			println!("[Fatal]: Unable to parse configuration!");
+			process::exit(1);
+		});
+	}
+	lazy_static::initialize(&confj);
+
+	return Config {
+		caching_timeout: confj["cachingTimeout"].as_i64().unwrap_or(0),
+		stream_timeout: confj["streamTimeout"].as_u64().unwrap_or(20),
+		hsts: confj["hsts"].as_bool().unwrap_or(false),
+		hidden: match &confj["hide"] {
+			json::JsonValue::Array(array) => {
+				let mut tmp = sort_json(array, "");
+				tmp.push("ssl".to_owned());
+				tmp.push("redir".to_owned());
+				tmp.sort_unstable();
+				tmp
+			},
+			_ => Vec::new(),
+		},
+		hiddenx: match &confj["hide"] {
+			json::JsonValue::Array(array) => parse_json_regex(array, "").unwrap_or(RegexSet::new(&["$x"]).unwrap()),
+			_ => RegexSet::new(&["$x"]).unwrap(),
+		},
+		lredir: match &confj["redir"] {
+			json::JsonValue::Array(array) => sort_json(array, "location"),
+			_ => Vec::new(),
+		},
+		lredirx: match &confj["redir"] {
+			json::JsonValue::Array(array) => array_json_regex(array, "location"),
+			_ => Vec::new(),
+		},
+		redirx: match &confj["redir"] {
+			json::JsonValue::Array(array) => RegexSet::new(array_json_regex(array, "location").iter()).unwrap_or(RegexSet::new(&["$x"]).unwrap()),
+			_ => RegexSet::new(&["$x"]).unwrap(),
+		},
+		redirmap: match &confj["redir"] {
+			json::JsonValue::Array(array) => map_json(array, "location", "dest"),
+			_ => HashMap::new(),
+		},
+
+		lproxy: match &confj["proxy"] {
+			json::JsonValue::Array(array) => sort_json(array, "location"),
+			_ => Vec::new(),
+		},
+		lproxyx: match &confj["proxy"] {
+			json::JsonValue::Array(array) => array_json_regex(array, "location"),
+			_ => Vec::new(),
+		},
+		proxyx: match &confj["proxy"] {
+			json::JsonValue::Array(array) => RegexSet::new(array_json_regex(array, "location").iter()).unwrap_or(RegexSet::new(&["$x"]).unwrap()),
+			_ => RegexSet::new(&["$x"]).unwrap(),
+		},
+		proxymap: match &confj["proxy"] {
+			json::JsonValue::Array(array) => map_json(array, "location", "host"),
+			_ => HashMap::new(),
+		},
+		protect: confj["advanced"]["protect"].as_bool().unwrap_or(false),
+		compress_files: confj["advanced"]["compressFiles"].as_bool().unwrap_or(false),
+		http_addr: confj["advanced"]["httpAddr"].as_str().unwrap_or("[::]:80"),
+		tls_addr: confj["advanced"]["tlsAddr"].as_str().unwrap_or("[::]:443"),
+	}
+}
+
 // Generate the correct host and path, from raw data.
 // Hidden hosts can be virtual-host based (hidden.local) or regex-based.
 // Redirects can be either full path based (localhost/redir) or regex-based.
@@ -38,42 +126,42 @@ fn handle_path(mut path: String, mut host: String) -> (String, String, Option<St
 
 	match host {
 	 	_ if host.len() < 1 || host[..1] == ".".to_owned() || host.contains("/") || host.contains("\\") => host = "html".to_owned(),
-		_ if lredir.binary_search(fp).is_ok() => {
-			match redirmap.get(fp) {
+		_ if conf.lredir.binary_search(fp).is_ok() => {
+			match conf.redirmap.get(fp) {
 				Some(link) => return (link.to_string(), "redir".to_owned(), None),
 				None => (),
 			};
 		},
-		_ if lproxy.binary_search(&host).is_ok() => {
-			match proxymap.get(&host) {
+		_ if conf.lproxy.binary_search(&host).is_ok() => {
+			match conf.proxymap.get(&host) {
 				Some(link) => return ([link.to_string(), trim_suffix("index.html".to_owned(), path)].concat(), "proxy".to_owned(), None),
 				None => (),
 			};
 		},
-		_ if redirx.is_match(fp) => {
+		_ if conf.redirx.is_match(fp) => {
 			let mut r = "$x";
-			match redirx.matches(fp).iter().next() {
-				Some(regx) => r = &lredirx[regx],
+			match conf.redirx.matches(fp).iter().next() {
+				Some(regx) => r = &conf.lredirx[regx],
 				None => (),
 			}
-			match redirmap.get(&["r#", r].concat()) {
+			match conf.redirmap.get(&["r#", r].concat()) {
 				Some(link) => return ([link.to_string(), trim_regex(r, &fp)].concat(), "redir".to_owned(), None),
 				None => (),
 			};
 		},
-		_ if proxyx.is_match(fp) => {
+		_ if conf.proxyx.is_match(fp) => {
 			let mut r = "$x";
-			match proxyx.matches(fp).iter().next() {
-				Some(regx) => r = &lproxyx[regx],
+			match conf.proxyx.matches(fp).iter().next() {
+				Some(regx) => r = &conf.lproxyx[regx],
 				None => (),
 			}
-			match proxymap.get(&["r#", r].concat()) {
+			match conf.proxymap.get(&["r#", r].concat()) {
 				Some(link) => return ([link.to_string(), trim_regex(r, &fp)].concat(), "proxy".to_owned(), None),
 				None => (),
 			};
 		},
-		_ if hidden.binary_search(&host.to_owned()).is_ok() => host = "html".to_owned(),
-		_ if hiddenx.is_match(&host.to_owned()) => host = "html".to_owned(),
+		_ if conf.hidden.binary_search(&host.to_owned()).is_ok() => host = "html".to_owned(),
+		_ if conf.hiddenx.is_match(&host.to_owned()) => host = "html".to_owned(),
 		_ if !Path::new(&host).exists() => host = "html".to_owned(),
 		_ => (),
 	};
@@ -292,56 +380,12 @@ fn parse_json_regex(array: &json::Array, attr: &str) -> Result<RegexSet, regex::
 
 // Global constants generated at runtime.
 lazy_static! {
-	static ref confraw: String = fs::read_to_string("conf.json").unwrap_or(DEFAULT_CONFIG.to_owned());
-	static ref config: json::JsonValue<> = json::parse(&confraw).unwrap_or_else(|_err| {
-		println!("[Fatal]: Unable to parse configuration!");
-		process::exit(1);
-	});
-	static ref hidden: Vec<String> = match &config["hide"] {
-		json::JsonValue::Array(array) => {
-			let mut tmp = sort_json(array, "");
-			tmp.push("ssl".to_owned());
-			tmp.push("redir".to_owned());
-			tmp.sort_unstable();
-			return tmp;
-		},
-		_ => Vec::new(),
-	};
-	static ref hiddenx: RegexSet = match &config["hide"] {
-		json::JsonValue::Array(array) => parse_json_regex(array, "").unwrap_or(RegexSet::new(&["$x"]).unwrap()),
-		_ => RegexSet::new(&["$x"]).unwrap(),
-	};
-	static ref lredir: Vec<String> = match &config["redir"] {
-		json::JsonValue::Array(array) => sort_json(array, "location"),
-		_ => Vec::new(),
-	};
-	static ref lredirx: Vec<String> = match &config["redir"] {
-		json::JsonValue::Array(array) => array_json_regex(array, "location"),
-		_ => Vec::new(),
-	};
-	static ref redirmap: HashMap<String, String> = match &config["redir"] {
-		json::JsonValue::Array(array) => map_json(array, "location", "dest"),
-		_ => HashMap::new(),
-	};
-	static ref redirx: RegexSet =  RegexSet::new(lredirx.iter()).unwrap_or(RegexSet::new(&["$x"]).unwrap());
-	static ref lproxy: Vec<String> = match &config["proxy"] {
-		json::JsonValue::Array(array) => sort_json(array, "location"),
-		_ => Vec::new(),
-	};
-	static ref lproxyx: Vec<String> = match &config["proxy"] {
-		json::JsonValue::Array(array) => array_json_regex(array, "location"),
-		_ => Vec::new(),
-	};
-	static ref proxymap: HashMap<String, String> = match &config["proxy"] {
-		json::JsonValue::Array(array) => map_json(array, "location", "host"),
-		_ => HashMap::new(),
-	};
-	static ref proxyx: RegexSet =  RegexSet::new(lproxyx.iter()).unwrap_or(RegexSet::new(&["$x"]).unwrap());
+	static ref conf: Config = load_config();
 	static ref blankheader: HeaderValue = HeaderValue::from_static("");
 	static ref clientconn: Addr<ClientConnector> = {
 		ClientConnector::default()
-			.conn_lifetime(Duration::from_secs(config["streamTimeout"].as_u64().unwrap_or(20)*4))
-			.conn_keep_alive(Duration::from_secs(config["streamTimeout"].as_u64().unwrap_or(20)*4))
+			.conn_lifetime(Duration::from_secs(conf.stream_timeout*4))
+			.conn_keep_alive(Duration::from_secs(conf.stream_timeout*4))
 			.start()
 	};
 }
@@ -350,9 +394,9 @@ lazy_static! {
 fn index(_req: &HttpRequest) -> Box<Future<Item=HttpResponse, Error=Error>> {
 	let conn_info = _req.connection_info();
 
-	if config["hsts"].as_bool().unwrap_or(false) && conn_info.scheme() == "http" {
+	if conf.hsts && conn_info.scheme() == "http" {
 		let mut host = trim_port(conn_info.host().to_string());
-		let tls_host = config["advanced"]["tlsAddr"].as_str().unwrap_or("[::]:443");
+		let tls_host = conf.tls_addr;
 		if trim_host(tls_host.to_string()) != ":443" {
 			host = host + &trim_host(tls_host.to_string()).to_string();
 		}
@@ -389,7 +433,7 @@ fn index(_req: &HttpRequest) -> Box<Future<Item=HttpResponse, Error=Error>> {
 	let be = &HeaderValue::from_static("");
 	let ce = _req.headers().get(header::ACCEPT_ENCODING).unwrap_or(be).to_str().unwrap_or("");
 	if ce.contains("br") {
-		if config["advanced"]["compressfiles"].as_bool().unwrap_or(false) {
+		if conf.compress_files {
 			match stream::get_compressed_file(&*full_path, mim) {
 				Ok(path) => full_path = path,
 				Err(_) => (),
@@ -430,7 +474,7 @@ fn index(_req: &HttpRequest) -> Box<Future<Item=HttpResponse, Error=Error>> {
 	};
 
 	// Craft a response.
-	let cache_int = config["cachingTimeout"].as_i64().unwrap_or(0);
+	let cache_int = conf.caching_timeout;
 	result(Ok(
 		HttpResponse::Ok()
 	        .content_type(&*mime)
@@ -451,10 +495,10 @@ fn index(_req: &HttpRequest) -> Box<Future<Item=HttpResponse, Error=Error>> {
 			.if_true(cache_int != 0, |builder| {
 				builder.header(header::CACHE_CONTROL, ["max-age=".to_owned(), (cache_int*3600).to_string(), ", public, stale-while-revalidate=".to_owned(), (cache_int*900).to_string()].concat());
 			})
-			.if_true(config["hsts"].as_bool().unwrap_or(false), |builder| {
+			.if_true(conf.hsts, |builder| {
 				builder.header(header::STRICT_TRANSPORT_SECURITY, "max-age=31536000;includeSubDomains;preload");
 			})
-			.if_true(config["advanced"]["protect"].as_bool().unwrap_or(false), |builder| {
+			.if_true(conf.protect, |builder| {
 				builder.header(header::REFERRER_POLICY, "no-referrer");
 				builder.header(header::X_CONTENT_TYPE_OPTIONS, "nosniff");
 				builder.header(header::CONTENT_SECURITY_POLICY, "default-src https: data: 'unsafe-inline' 'unsafe-eval' 'self'; frame-ancestors 'self'");
@@ -467,21 +511,15 @@ fn index(_req: &HttpRequest) -> Box<Future<Item=HttpResponse, Error=Error>> {
 
 // Load configuration, SSL certs, then attempt to start the program.
 fn main() {
-	println!("[Info]: Starting KatWebX...");
+	println!("[Info]: Loading KatWebX config...");
 	let sys = actix::System::new("katwebx");
-	lazy_static::initialize(&hidden);
-	lazy_static::initialize(&hiddenx);
-	lazy_static::initialize(&lredir);
-	lazy_static::initialize(&redirmap);
-	lazy_static::initialize(&redirx);
-	lazy_static::initialize(&lproxy);
-	lazy_static::initialize(&proxymap);
-	lazy_static::initialize(&proxyx);
+	lazy_static::initialize(&conf);
+	lazy_static::initialize(&blankheader);
 	lazy_static::initialize(&clientconn);
 
-	fs::write("conf.json", config.pretty(2)).unwrap_or_else(|_err| {
-		println!("[Warn]: Unable to write configuration!");
-	});
+	//fs::write("conf.json", config.pretty(2)).unwrap_or_else(|_err| {
+	//	println!("[Warn]: Unable to write configuration!");
+	//});
 
 	let mut tconfig = ServerConfig::new(NoClientAuth::new());
 	let cert_file = &mut BufReader::new(File::open("ssl/cert.pem").unwrap_or_else(|_err| {
@@ -509,15 +547,17 @@ fn main() {
 		ServerFlags::HTTP1 | ServerFlags::HTTP2,
 	);
 
+	println!("[Info]: Starting KatWebX...");
+
 	// HTTPS request handling
     server::new(|| {
 		App::new()
 			.default_resource(|r| r.f(index))
 	})
-		.keep_alive(config["streamTimeout"].as_usize().unwrap_or(20))
-		.bind_with(config["advanced"]["tlsAddr"].as_str().unwrap_or("[::]:443"), move || acceptor.clone())
+		.keep_alive(conf.stream_timeout as usize)
+		.bind_with(conf.tls_addr, move || acceptor.clone())
 		.unwrap_or_else(|_err| {
-			println!("{}", ["[Fatal]: Unable to bind to ".to_owned(), config["advanced"]["tlsAddr"].as_str().unwrap_or("[::]:443").to_string(), "!".to_owned()].concat());
+			println!("{}", ["[Fatal]: Unable to bind to ", conf.tls_addr, "!"].concat());
 			process::exit(1);
 		})
         .start();
@@ -527,10 +567,10 @@ fn main() {
 		App::new()
 			.default_resource(|r| r.f(index))
 	})
-		.keep_alive(config["streamTimeout"].as_usize().unwrap_or(20))
-		.bind(config["advanced"]["httpAddr"].as_str().unwrap_or("[::]:80"))
+		.keep_alive(conf.stream_timeout as usize)
+		.bind(conf.http_addr)
 		.unwrap_or_else(|_err| {
-			println!("{}", ["[Fatal]: Unable to bind to ".to_owned(), config["advanced"]["httpAddr"].as_str().unwrap_or("[::]:80").to_string(), "!".to_owned()].concat());
+			println!("{}", ["[Fatal]: Unable to bind to ", conf.http_addr, "!"].concat());
 			process::exit(1);
 		})
 	    .start();
@@ -594,6 +634,5 @@ mod tests {
 		assert_eq!(handle_path("/".to_owned(), "src".to_owned()), ("/index.html".to_owned(), "html".to_owned(), Some("html/index.html".to_owned())));
 		assert_eq!(handle_path("/".to_owned(), "target".to_owned()), ("/index.html".to_owned(), "html".to_owned(), Some("html/index.html".to_owned())));
 		assert_eq!(handle_path("/".to_owned(), "html".to_owned()), ("/index.html".to_owned(), "html".to_owned(), Some("html/index.html".to_owned())));
-
 	}
 }
