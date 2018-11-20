@@ -12,9 +12,9 @@ extern crate regex;
 extern crate bytes;
 mod stream;
 mod ui;
-use actix_web::{actix::{Addr, Actor}, server, server::{RustlsAcceptor, ServerFlags}, client, client::ClientConnector, App, http::{header, header::{HeaderValue, HeaderMap}, Method, ContentEncoding, StatusCode}, HttpRequest, HttpResponse, HttpMessage, AsyncResponder, Error, dev::Payload};
+use actix_web::{actix::Actor, server, server::{RustlsAcceptor, ServerFlags}, client, client::ClientConnector, App, http::{header, header::{HeaderValue, HeaderMap}, Method, ContentEncoding, StatusCode}, HttpRequest, HttpResponse, HttpMessage, AsyncResponder, Error, dev::Payload};
 use futures::future::{Future, result};
-use std::{process, cmp, fs, fs::File, path::Path, io::Read, io::BufReader, collections::HashMap, time::Duration};
+use std::{process, cmp, fs, fs::File, path::Path, io::Read, io::BufReader, collections::HashMap, time::Duration, sync::{Arc, Mutex}};
 use mime_sniffer::MimeTypeSniffer;
 use regex::{Regex, NoExpand, RegexSet};
 use rustls::{NoClientAuth, ServerConfig, internal::pemfile::{certs, rsa_private_keys}};
@@ -22,6 +22,11 @@ use rustls::{NoClientAuth, ServerConfig, internal::pemfile::{certs, rsa_private_
 // The default configuration for the server to use.
 const DEFAULT_CONFIG: &str = r#"{"cachingTimeout":4,"streamTimeout":20,"hsts":false,"proxy":[{"location":"proxy.local","host":"https://kittyhacker101.tk"},{"location":"r#localhost\/proxy[0-9]","host":"https://kittyhacker101.tk"}],"redir":[{"location":"localhost/redir","dest":"https://kittyhacker101.tk"},{"location":"r#localhost/redir2.*","dest":"https://google.com"}],"hide":["src", "r#tar.*"],"advanced":{"protect":true,"compressfiles":true,"httpAddr":"[::]:80","tlsAddr":"[::]:443"}}"#;
 
+struct AppState {
+    config: Arc<Mutex<Config>>,
+}
+
+#[derive(Clone)]
 struct Config {
 	caching_timeout: i64,
 	stream_timeout: u64,
@@ -114,7 +119,7 @@ fn load_config() -> Config {
 // Hidden hosts can be virtual-host based (hidden.local) or regex-based.
 // Redirects can be either full path based (localhost/redir) or regex-based.
 // Reverse proxying can be either virtual-host based (proxy.local) or regex-based.
-fn handle_path(mut path: String, mut host: String) -> (String, String, Option<String>) {
+fn handle_path(mut path: String, mut host: String, conf: Config) -> (String, String, Option<String>) {
 	host = trim_port(host);
 	let fp = &[host.to_owned(), path.to_owned()].concat();
 	match path {
@@ -173,9 +178,13 @@ fn handle_path(mut path: String, mut host: String) -> (String, String, Option<St
 // Reverse proxy a request, passing through any compression.
 // This cannot proxy websockets, because it removes the "Connection" HTTP header.
 // Hop-by-hop headers are removed, to allow connection reuse.
-fn proxy_request(path: String, method: Method, headers: &HeaderMap, body: Payload, mut client_ip: String) -> Box<Future<Item=HttpResponse, Error=Error>> {
+fn proxy_request(path: String, method: Method, headers: &HeaderMap, body: Payload, mut client_ip: String, timeout: u64) -> Box<Future<Item=HttpResponse, Error=Error>> {
 	let re = client::ClientRequest::build()
-		.with_connector(clientconn.clone())
+		.with_connector(
+			ClientConnector::default()
+				.conn_lifetime(Duration::from_secs(timeout*4))
+				.conn_keep_alive(Duration::from_secs(timeout*4))
+				.start().clone())
 		.uri(path).method(method).disable_decompress()
 		.if_true(true, |req| {
 			for (key, value) in headers.iter() {
@@ -378,21 +387,10 @@ fn parse_json_regex(array: &json::Array, attr: &str) -> Result<RegexSet, regex::
 	return RegexSet::new(&array_json_regex(array, attr));
 }
 
-// Global constants generated at runtime.
-lazy_static! {
-	static ref conf: Config = load_config();
-	static ref blankheader: HeaderValue = HeaderValue::from_static("");
-	static ref clientconn: Addr<ClientConnector> = {
-		ClientConnector::default()
-			.conn_lifetime(Duration::from_secs(conf.stream_timeout*4))
-			.conn_keep_alive(Duration::from_secs(conf.stream_timeout*4))
-			.start()
-	};
-}
-
 // HTTP(S) request handling.
-fn index(_req: &HttpRequest) -> Box<Future<Item=HttpResponse, Error=Error>> {
+fn index(_req: &HttpRequest<AppState>) -> Box<Future<Item=HttpResponse, Error=Error>> {
 	let conn_info = _req.connection_info();
+	let conf = _req.state().config.lock().unwrap();
 
 	if conf.hsts && conn_info.scheme() == "http" {
 		let mut host = trim_port(conn_info.host().to_string());
@@ -403,7 +401,7 @@ fn index(_req: &HttpRequest) -> Box<Future<Item=HttpResponse, Error=Error>> {
 		return redir(&["https://".to_string(), host, _req.path().to_string()].concat());
 	}
 
-	let (path, host, fp) = handle_path(_req.path().to_string(), conn_info.host().to_string());
+	let (path, host, fp) = handle_path(_req.path().to_string(), conn_info.host().to_string(), conf.clone());
 	//println!("{:?}", [trim_port(conn_info.host().to_string()), _req.path().to_string()].concat());
 
 	if host == "redir" {
@@ -414,7 +412,7 @@ fn index(_req: &HttpRequest) -> Box<Future<Item=HttpResponse, Error=Error>> {
 	}
 
 	if host == "proxy" {
-		return proxy_request(path, _req.method().to_owned(), _req.headers(), _req.payload(), conn_info.remote().unwrap_or("127.0.0.1").to_string())
+		return proxy_request(path, _req.method().to_owned(), _req.headers(), _req.payload(), conn_info.remote().unwrap_or("127.0.0.1").to_string(), conf.stream_timeout)
 	}
 
 	if _req.method() != Method::GET && _req.method() != Method::HEAD {
@@ -463,7 +461,7 @@ fn index(_req: &HttpRequest) -> Box<Future<Item=HttpResponse, Error=Error>> {
 	}
 
 	// Parse a ranges header if it is present, and then turn a File into a stream.
-	let (length, offset) = stream::calculate_ranges(_req, finfo.len());
+	let (length, offset) = stream::calculate_ranges(&_req.drop_state(), finfo.len());
 	let reader = stream::ChunkedReadFile {
 		offset: offset,
 		size: length,
@@ -513,9 +511,8 @@ fn index(_req: &HttpRequest) -> Box<Future<Item=HttpResponse, Error=Error>> {
 fn main() {
 	println!("[Info]: Loading KatWebX config...");
 	let sys = actix::System::new("katwebx");
-	lazy_static::initialize(&conf);
-	lazy_static::initialize(&blankheader);
-	lazy_static::initialize(&clientconn);
+	let conf = load_config();
+	let confa = Arc::new(Mutex::new(conf.clone()));
 
 	//fs::write("conf.json", config.pretty(2)).unwrap_or_else(|_err| {
 	//	println!("[Warn]: Unable to write configuration!");
@@ -549,9 +546,9 @@ fn main() {
 
 	println!("[Info]: Starting KatWebX...");
 
-	// HTTPS request handling
-    server::new(|| {
-		App::new()
+	// Request handling
+    server::new(move || {
+		App::with_state(AppState{config: confa.clone()})
 			.default_resource(|r| r.f(index))
 	})
 		.keep_alive(conf.stream_timeout as usize)
@@ -560,20 +557,12 @@ fn main() {
 			println!("{}", ["[Fatal]: Unable to bind to ", conf.tls_addr, "!"].concat());
 			process::exit(1);
 		})
-        .start();
-
-	// HTTP request handling
-	server::new(|| {
-		App::new()
-			.default_resource(|r| r.f(index))
-	})
-		.keep_alive(conf.stream_timeout as usize)
 		.bind(conf.http_addr)
 		.unwrap_or_else(|_err| {
 			println!("{}", ["[Fatal]: Unable to bind to ", conf.http_addr, "!"].concat());
 			process::exit(1);
 		})
-	    .start();
+        .start();
 
 	println!("[Info]: Started KatWebX.");
 	let _ = sys.run();
