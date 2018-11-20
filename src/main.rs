@@ -389,8 +389,8 @@ fn parse_json_regex(array: &json::Array, attr: &str) -> Result<RegexSet, regex::
 
 // HTTP(S) request handling.
 fn index(_req: &HttpRequest<AppState>) -> Box<Future<Item=HttpResponse, Error=Error>> {
+	let conf = _req.state().config.lock().unwrap().clone();
 	let conn_info = _req.connection_info();
-	let conf = _req.state().config.lock().unwrap();
 
 	if conf.hsts && conn_info.scheme() == "http" {
 		let mut host = trim_port(conn_info.host().to_string());
