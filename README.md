@@ -10,10 +10,10 @@ KatWebX is an early work in progress, and you will encounter bugs. **Do not use 
 - [x] Regex-based redirects
 - [x] Flexible config parsing
 - [x] Compressed reverse proxy
-- [ ] Caching proxy support
 - [ ] Websocket reverse proxy
 - [x] Regex-based reverse proxying
 - [x] Automatic proxy compression
+- [ ] On-the-fly config reloading 
 - [ ] HTTP basic authentication
 - [ ] Regex-based auth
 - [x] Fast file serving
@@ -29,5 +29,5 @@ KatWebX is an early work in progress, and you will encounter bugs. **Do not use 
 ## Possible Features
 - QUIC support
 - Let's Encrypt integration
-- On-the-fly config reloading
+- Caching proxy
 - Advanced load balancer
