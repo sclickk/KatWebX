@@ -14,7 +14,7 @@ mod stream;
 mod ui;
 use actix_web::{actix::Actor, server, server::{RustlsAcceptor, ServerFlags}, client, client::ClientConnector, App, http::{header, header::{HeaderValue, HeaderMap}, Method, ContentEncoding, StatusCode}, HttpRequest, HttpResponse, HttpMessage, AsyncResponder, Error, dev::Payload};
 use futures::future::{Future, result};
-use std::{process, cmp, fs, fs::File, path::Path, io::Read, io::BufReader, collections::HashMap, time::Duration, sync::{Arc, Mutex}};
+use std::{process, cmp, fs, fs::File, path::Path, io::Read, io::BufReader, collections::HashMap, time::Duration};
 use mime_sniffer::MimeTypeSniffer;
 use regex::{Regex, NoExpand, RegexSet};
 use rustls::{NoClientAuth, ServerConfig, internal::pemfile::{certs, rsa_private_keys}};
@@ -23,7 +23,7 @@ use rustls::{NoClientAuth, ServerConfig, internal::pemfile::{certs, rsa_private_
 const DEFAULT_CONFIG: &str = r#"{"cachingTimeout":4,"streamTimeout":20,"hsts":false,"proxy":[{"location":"proxy.local","host":"https://kittyhacker101.tk"},{"location":"r#localhost\/proxy[0-9]","host":"https://kittyhacker101.tk"}],"redir":[{"location":"localhost/redir","dest":"https://kittyhacker101.tk"},{"location":"r#localhost/redir2.*","dest":"https://google.com"}],"hide":["src", "r#tar.*"],"advanced":{"protect":true,"compressfiles":true,"httpAddr":"[::]:80","tlsAddr":"[::]:443"}}"#;
 
 struct AppState {
-    config: Arc<Mutex<Config>>,
+    config: Config,
 }
 
 #[derive(Clone)]
@@ -43,8 +43,8 @@ struct Config {
 	proxymap: HashMap<String, String>,
 	protect: bool,
 	compress_files: bool,
-	http_addr: &'static str,
-	tls_addr: &'static str,
+	http_addr: String,
+	tls_addr: String,
 }
 
 fn load_config() -> Config {
@@ -110,8 +110,8 @@ fn load_config() -> Config {
 		},
 		protect: confj["advanced"]["protect"].as_bool().unwrap_or(false),
 		compress_files: confj["advanced"]["compressFiles"].as_bool().unwrap_or(false),
-		http_addr: confj["advanced"]["httpAddr"].as_str().unwrap_or("[::]:80"),
-		tls_addr: confj["advanced"]["tlsAddr"].as_str().unwrap_or("[::]:443"),
+		http_addr: confj["advanced"]["httpAddr"].as_str().unwrap_or("[::]:80").to_string(),
+		tls_addr: confj["advanced"]["tlsAddr"].as_str().unwrap_or("[::]:443").to_string(),
 	}
 }
 
@@ -389,7 +389,7 @@ fn parse_json_regex(array: &json::Array, attr: &str) -> Result<RegexSet, regex::
 
 // HTTP(S) request handling.
 fn index(_req: &HttpRequest<AppState>) -> Box<Future<Item=HttpResponse, Error=Error>> {
-	let conf = _req.state().config.lock().unwrap().clone();
+	let conf = _req.state().config.clone();
 	let conn_info = _req.connection_info();
 
 	if conf.hsts && conn_info.scheme() == "http" {
@@ -512,7 +512,7 @@ fn main() {
 	println!("[Info]: Loading KatWebX config...");
 	let sys = actix::System::new("katwebx");
 	let conf = load_config();
-	let confa = Arc::new(Mutex::new(conf.clone()));
+	let confd = conf.clone();
 
 	//fs::write("conf.json", config.pretty(2)).unwrap_or_else(|_err| {
 	//	println!("[Warn]: Unable to write configuration!");
@@ -548,18 +548,18 @@ fn main() {
 
 	// Request handling
     server::new(move || {
-		App::with_state(AppState{config: confa.clone()})
+		App::with_state(AppState{config: confd.clone()})
 			.default_resource(|r| r.f(index))
 	})
 		.keep_alive(conf.stream_timeout as usize)
-		.bind_with(conf.tls_addr, move || acceptor.clone())
+		.bind_with(&conf.tls_addr, move || acceptor.clone())
 		.unwrap_or_else(|_err| {
-			println!("{}", ["[Fatal]: Unable to bind to ", conf.tls_addr, "!"].concat());
+			println!("{}", ["[Fatal]: Unable to bind to ", &conf.tls_addr, "!"].concat());
 			process::exit(1);
 		})
-		.bind(conf.http_addr)
+		.bind(&conf.http_addr)
 		.unwrap_or_else(|_err| {
-			println!("{}", ["[Fatal]: Unable to bind to ", conf.http_addr, "!"].concat());
+			println!("{}", ["[Fatal]: Unable to bind to ", &conf.http_addr, "!"].concat());
 			process::exit(1);
 		})
         .start();
