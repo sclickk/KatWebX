@@ -114,8 +114,8 @@ fn load_config() -> Config {
 		},
 		protect: confj["advanced"]["protect"].as_bool().unwrap_or(false),
 		compress_files: confj["advanced"]["compressFiles"].as_bool().unwrap_or(false),
-		http_addr: confj["advanced"]["httpAddr"].as_str().unwrap_or("[::]:80").to_string(),
-		tls_addr: confj["advanced"]["tlsAddr"].as_str().unwrap_or("[::]:443").to_string(),
+		http_addr: confj["advanced"]["httpAddr"].as_str().unwrap_or("[::]:80").to_owned(),
+		tls_addr: confj["advanced"]["tlsAddr"].as_str().unwrap_or("[::]:443").to_owned(),
 	}
 }
 
@@ -123,9 +123,11 @@ fn load_config() -> Config {
 // Hidden hosts can be virtual-host based (hidden.local) or regex-based.
 // Redirects can be either full path based (localhost/redir) or regex-based.
 // Reverse proxying can be either virtual-host based (proxy.local) or regex-based.
-fn handle_path(mut path: String, mut host: String, conf: Config) -> (String, String, Option<String>) {
-	host = trim_port(host);
-	let fp = &[host.to_owned(), path.to_owned()].concat();
+fn handle_path(path: &str, host: &str, conf: Config) -> (String, String, Option<String>) {
+	let mut path = path.to_owned();
+	let mut host = trim_port(host.to_owned());
+
+	let fp = &[&*host, &*path].concat();
 	match path {
 		_ if path.ends_with("/index.html") => return ("./".to_owned(), "redir".to_owned(), None),
 		_ if path.contains("..") => return ("..".to_owned(), "redir".to_owned(), None),
@@ -134,16 +136,16 @@ fn handle_path(mut path: String, mut host: String, conf: Config) -> (String, Str
 	}
 
 	match host {
-	 	_ if host.len() < 1 || host[..1] == ".".to_owned() || host.contains("/") || host.contains("\\") => host = "html".to_owned(),
+	 	_ if host.len() < 1 || &host[..1] == "." || host.contains("/") || host.contains("\\") => host = "html".to_owned(),
 		_ if conf.lredir.binary_search(fp).is_ok() => {
 			match conf.redirmap.get(fp) {
-				Some(link) => return (link.to_string(), "redir".to_owned(), None),
+				Some(link) => return (link.to_owned(), "redir".to_owned(), None),
 				None => (),
 			};
 		},
 		_ if conf.lproxy.binary_search(&host).is_ok() => {
 			match conf.proxymap.get(&host) {
-				Some(link) => return ([link.to_string(), trim_suffix("index.html".to_owned(), path)].concat(), "proxy".to_owned(), None),
+				Some(link) => return ([link.to_owned(), trim_suffix("index.html".to_owned(), path)].concat(), "proxy".to_owned(), None),
 				None => (),
 			};
 		},
@@ -154,7 +156,7 @@ fn handle_path(mut path: String, mut host: String, conf: Config) -> (String, Str
 				None => (),
 			}
 			match conf.redirmap.get(&["r#", r].concat()) {
-				Some(link) => return ([link.to_string(), trim_regex(r, &fp)].concat(), "redir".to_owned(), None),
+				Some(link) => return ([link.to_owned(), trim_regex(r, &fp)].concat(), "redir".to_owned(), None),
 				None => (),
 			};
 		},
@@ -165,18 +167,18 @@ fn handle_path(mut path: String, mut host: String, conf: Config) -> (String, Str
 				None => (),
 			}
 			match conf.proxymap.get(&["r#", r].concat()) {
-				Some(link) => return ([link.to_string(), trim_regex(r, &fp)].concat(), "proxy".to_owned(), None),
+				Some(link) => return ([link.to_owned(), trim_regex(r, &fp)].concat(), "proxy".to_owned(), None),
 				None => (),
 			};
 		},
-		_ if conf.hidden.binary_search(&host.to_owned()).is_ok() => host = "html".to_owned(),
-		_ if conf.hiddenx.is_match(&host.to_owned()) => host = "html".to_owned(),
+		_ if conf.hidden.binary_search(&host).is_ok() => host = "html".to_owned(),
+		_ if conf.hiddenx.is_match(&host) => host = "html".to_owned(),
 		_ if !Path::new(&host).exists() => host = "html".to_owned(),
 		_ => (),
 	};
 
-	let full_path = &[&*host, &*path].concat();
-	return (path, host, Some(full_path.to_string()))
+	let full_path = [&*host, &*path].concat();
+	return (path, host, Some(full_path))
 }
 
 // Reverse proxy a request, passing through any compression.
@@ -192,9 +194,9 @@ fn proxy_request(path: String, method: Method, headers: &HeaderMap, body: Payloa
 		.uri(path).method(method).disable_decompress()
 		.if_true(true, |req| {
 			for (key, value) in headers.iter() {
-				match key.to_owned().as_str() {
+				match key.as_str() {
 					"Connection" | "Proxy-Connection" | "Keep-Alive" | "Proxy-Authenticate" | "Proxy-Authorization" | "Te" | "Trailer" | "Transfer-Encoding" | "Upgrade" => (),
-					"X-Forwarded-For" => client_ip = [value.to_owned().to_str().unwrap_or("127.0.0.1"), ", ", &client_ip].concat(),
+					"X-Forwarded-For" => client_ip = [value.to_str().unwrap_or("127.0.0.1"), ", ", &client_ip].concat(),
 					_ => {
 						req.header(key.to_owned(), value.to_owned());
 						continue
@@ -245,13 +247,13 @@ fn proxy_request(path: String, method: Method, headers: &HeaderMap, body: Payloa
 fn trim_port(path: String) -> String {
 	if path.contains("[") && path.contains("]") {
 		match path.rfind("]:") {
-			Some(i) => return path[..i+1].to_string(),
+			Some(i) => return path[..i+1].to_owned(),
 			None => return path,
 		}
 	}
 
 	match path.rfind(":") {
-		Some(i) => return path[..i].to_string(),
+		Some(i) => return path[..i].to_owned(),
 		None => return path,
 	}
 }
@@ -260,13 +262,13 @@ fn trim_port(path: String) -> String {
 fn trim_host(path: String) -> String {
 	if path.contains("[") && path.contains("]") {
 		match path.rfind("]:") {
-			Some(i) => return path[i+1..].to_string(),
+			Some(i) => return path[i+1..].to_owned(),
 			None => return "".to_owned(),
 		}
 	}
 
 	match path.rfind(":") {
-		Some(i) => return path[i..].to_string(),
+		Some(i) => return path[i..].to_owned(),
 		None => return "".to_owned(),
 	}
 }
@@ -274,7 +276,7 @@ fn trim_host(path: String) -> String {
 // Trim a substring (prefix) from the beginning of a string.
 fn trim_prefix(prefix: String, root: String) -> String {
 	match root.find(&*prefix) {
-		Some(i) => return root[i+prefix.len()..].to_string(),
+		Some(i) => return root[i+prefix.len()..].to_owned(),
 		None => return root,
 	}
 }
@@ -282,7 +284,7 @@ fn trim_prefix(prefix: String, root: String) -> String {
 // Trim a substring (suffix) from the end of a string.
 fn trim_suffix(suffix: String, root: String) -> String {
 	match root.rfind(&*suffix) {
-		Some(i) => return root[..i].to_string(),
+		Some(i) => return root[..i].to_owned(),
 		None => return root,
 	}
 }
@@ -335,10 +337,10 @@ fn get_mime(path: &str) -> String {
 			type_hint: "",
 		};
 
-		mime = mreq.sniff_mime_type().unwrap_or("").to_string();
+		mime = mreq.sniff_mime_type().unwrap_or("").to_owned();
 	}
 	if mime.starts_with("text/") && !mime.contains("charset") {
-		return [mime, "; charset=utf-8".to_owned()].concat();
+		return [&mime, "; charset=utf-8"].concat();
 	}
 
 	return mime
@@ -349,9 +351,9 @@ fn sort_json(array: &json::Array, attr: &str) -> Vec<String> {
 	let mut tmp = Vec::new();
 	for item in array {
 		if attr == "" {
-			tmp.push(item.as_str().unwrap_or("").to_string())
+			tmp.push(item.as_str().unwrap_or("").to_owned())
 		} else {
-			tmp.push(item[attr].as_str().unwrap_or("").to_string())
+			tmp.push(item[attr].as_str().unwrap_or("").to_owned())
 		}
 	}
 	tmp.sort_unstable();
@@ -362,7 +364,7 @@ fn sort_json(array: &json::Array, attr: &str) -> Vec<String> {
 fn map_json(array: &json::Array, attr1: &str, attr2: &str) -> HashMap<String, String> {
 	let mut tmp = HashMap::new();
 	for item in array {
-		tmp.insert(item[attr1].as_str().unwrap_or("").to_string(), item[attr2].as_str().unwrap_or("").to_string());
+		tmp.insert(item[attr1].as_str().unwrap_or("").to_owned(), item[attr2].as_str().unwrap_or("").to_owned());
 	}
 	return tmp
 }
@@ -374,9 +376,9 @@ fn array_json_regex(array: &json::Array, attr: &str) -> Vec<String> {
 	for item in array {
 		let itemt;
 		if attr == "" {
-			itemt = item.as_str().unwrap_or("").to_string();
+			itemt = item.as_str().unwrap_or("").to_owned();
 		} else {
-		 	itemt = item[attr].as_str().unwrap_or("").to_string();
+		 	itemt = item[attr].as_str().unwrap_or("").to_owned();
 		}
 		if itemt.starts_with("r#") {
 			tmp.push(trim_prefix("r#".to_owned(), itemt))
@@ -397,16 +399,16 @@ fn index(_req: &HttpRequest<AppState>) -> Box<Future<Item=HttpResponse, Error=Er
 	let conn_info = _req.connection_info();
 
 	if conf.hsts && conn_info.scheme() == "http" {
-		let mut host = trim_port(conn_info.host().to_string());
+		let mut host = trim_port(conn_info.host().to_owned());
 		let tls_host = conf.tls_addr;
-		if trim_host(tls_host.to_string()) != ":443" {
-			host = host + &trim_host(tls_host.to_string()).to_string();
+		if trim_host(tls_host.to_owned()) != ":443" {
+			host = host + &trim_host(tls_host.to_owned());
 		}
-		return redir(&["https://".to_string(), host, _req.path().to_string()].concat());
+		return redir(&["https://", &host, _req.path()].concat());
 	}
 
-	let (path, host, fp) = handle_path(_req.path().to_string(), conn_info.host().to_string(), conf.clone());
-	//println!("{:?}", [trim_port(conn_info.host().to_string()), _req.path().to_string()].concat());
+	let (path, host, fp) = handle_path(_req.path(), conn_info.host(), conf.clone());
+	//println!("{:?}", [&trim_port(conn_info.host().to_owned()), _req.path()].concat());
 
 	if host == "redir" {
 		if path == "forbid" {
@@ -416,7 +418,7 @@ fn index(_req: &HttpRequest<AppState>) -> Box<Future<Item=HttpResponse, Error=Er
 	}
 
 	if host == "proxy" {
-		return proxy_request(path, _req.method().to_owned(), _req.headers(), _req.payload(), conn_info.remote().unwrap_or("127.0.0.1").to_string(), conf.stream_timeout)
+		return proxy_request(path, _req.method().to_owned(), _req.headers(), _req.payload(), conn_info.remote().unwrap_or("127.0.0.1").to_owned(), conf.stream_timeout)
 	}
 
 	if _req.method() != Method::GET && _req.method() != Method::HEAD {
@@ -429,7 +431,7 @@ fn index(_req: &HttpRequest<AppState>) -> Box<Future<Item=HttpResponse, Error=Er
 	};
 
 	let mime = get_mime(&full_path);
-	let mim = trim_suffix("; charset=utf-8".to_string(), mime.to_string());
+	let mim = trim_suffix("; charset=utf-8".to_owned(), mime.to_owned());
 
 	// If the client accepts a brotli compressed response, then modify full_path to send one.
 	let be = &HeaderValue::from_static("");
@@ -495,7 +497,7 @@ fn index(_req: &HttpRequest<AppState>) -> Box<Future<Item=HttpResponse, Error=Er
 				builder.header(header::CACHE_CONTROL, "no-store, must-revalidate");
 			})
 			.if_true(cache_int != 0, |builder| {
-				builder.header(header::CACHE_CONTROL, ["max-age=".to_owned(), (cache_int*3600).to_string(), ", public, stale-while-revalidate=".to_owned(), (cache_int*900).to_string()].concat());
+				builder.header(header::CACHE_CONTROL, ["max-age=", &(cache_int*3600).to_string(), ", public, stale-while-revalidate=", &(cache_int*900).to_string()].concat());
 			})
 			.if_true(conf.hsts, |builder| {
 				builder.header(header::STRICT_TRANSPORT_SECURITY, "max-age=31536000;includeSubDomains;preload");
@@ -621,27 +623,27 @@ mod tests {
 	}
 	#[test]
 	fn test_handle_path_base() {
-		assert_eq!(handle_path("/index.html".to_owned(), "localhost".to_owned(), default_conf()), ("./".to_owned(), "redir".to_owned(), None));
-		assert_eq!(handle_path("/test/..".to_owned(), "localhost".to_owned(), default_conf()), ("..".to_owned(), "redir".to_owned(), None));
+		assert_eq!(handle_path("/index.html", "localhost", default_conf()), ("./".to_owned(), "redir".to_owned(), None));
+		assert_eq!(handle_path("/test/..", "localhost", default_conf()), ("..".to_owned(), "redir".to_owned(), None));
 
-		assert_eq!(handle_path("/".to_owned(), "H".to_owned(), default_conf()), ("/index.html".to_owned(), "html".to_owned(), Some("html/index.html".to_owned())));
-		assert_eq!(handle_path("/".to_owned(), "...".to_owned(), default_conf()), ("/index.html".to_owned(), "html".to_owned(), Some("html/index.html".to_owned())));
-		assert_eq!(handle_path("/".to_owned(), "/home".to_owned(), default_conf()), ("/index.html".to_owned(), "html".to_owned(), Some("html/index.html".to_owned())));
-		assert_eq!(handle_path("/".to_owned(), "C:\\".to_owned(), default_conf()), ("/index.html".to_owned(), "html".to_owned(), Some("html/index.html".to_owned())));
+		assert_eq!(handle_path("/", "H", default_conf()), ("/index.html".to_owned(), "html".to_owned(), Some("html/index.html".to_owned())));
+		assert_eq!(handle_path("/", "...", default_conf()), ("/index.html".to_owned(), "html".to_owned(), Some("html/index.html".to_owned())));
+		assert_eq!(handle_path("/", "/home", default_conf()), ("/index.html".to_owned(), "html".to_owned(), Some("html/index.html".to_owned())));
+		assert_eq!(handle_path("/", "C:\\", default_conf()), ("/index.html".to_owned(), "html".to_owned(), Some("html/index.html".to_owned())));
 
-		assert_eq!(handle_path("/".to_owned(), "ssl".to_owned(), default_conf()), ("/index.html".to_owned(), "html".to_owned(), Some("html/index.html".to_owned())));
-		assert_eq!(handle_path("/".to_owned(), "nonexistenthost".to_owned(), default_conf()), ("/index.html".to_owned(), "html".to_owned(), Some("html/index.html".to_owned())));
+		assert_eq!(handle_path("/", "ssl", default_conf()), ("/index.html".to_owned(), "html".to_owned(), Some("html/index.html".to_owned())));
+		assert_eq!(handle_path("/", "nonexistenthost", default_conf()), ("/index.html".to_owned(), "html".to_owned(), Some("html/index.html".to_owned())));
 	}
 	#[test]
 	fn test_handle_path_routing() {
-		assert_eq!(handle_path("/redir".to_owned(), "localhost".to_owned(), default_conf()), ("https://kittyhacker101.tk".to_owned(), "redir".to_owned(), None));
-		assert_eq!(handle_path("/redir2a".to_owned(), "localhost".to_owned(), default_conf()), ("https://google.com".to_owned(), "redir".to_owned(), None));
+		assert_eq!(handle_path("/redir", "localhost", default_conf()), ("https://kittyhacker101.tk".to_owned(), "redir".to_owned(), None));
+		assert_eq!(handle_path("/redir2a", "localhost", default_conf()), ("https://google.com".to_owned(), "redir".to_owned(), None));
 
-		assert_eq!(handle_path("/links.html".to_owned(), "proxy.local".to_owned(), default_conf()), ("https://kittyhacker101.tk/links.html".to_owned(), "proxy".to_owned(), None));
-		assert_eq!(handle_path("/proxy0/links.html".to_owned(), "localhost".to_owned(), default_conf()), ("https://kittyhacker101.tk/links.html".to_owned(), "proxy".to_owned(), None));
+		assert_eq!(handle_path("/links.html", "proxy.local", default_conf()), ("https://kittyhacker101.tk/links.html".to_owned(), "proxy".to_owned(), None));
+		assert_eq!(handle_path("/proxy0/links.html", "localhost", default_conf()), ("https://kittyhacker101.tk/links.html".to_owned(), "proxy".to_owned(), None));
 
-		assert_eq!(handle_path("/".to_owned(), "src".to_owned(), default_conf()), ("/index.html".to_owned(), "html".to_owned(), Some("html/index.html".to_owned())));
-		assert_eq!(handle_path("/".to_owned(), "target".to_owned(), default_conf()), ("/index.html".to_owned(), "html".to_owned(), Some("html/index.html".to_owned())));
-		assert_eq!(handle_path("/".to_owned(), "html".to_owned(), default_conf()), ("/index.html".to_owned(), "html".to_owned(), Some("html/index.html".to_owned())));
+		assert_eq!(handle_path("/", "src", default_conf()), ("/index.html".to_owned(), "html".to_owned(), Some("html/index.html".to_owned())));
+		assert_eq!(handle_path("/", "target", default_conf()), ("/index.html".to_owned(), "html".to_owned(), Some("html/index.html".to_owned())));
+		assert_eq!(handle_path("/", "html", default_conf()), ("/index.html".to_owned(), "html".to_owned(), Some("html/index.html".to_owned())));
 	}
 }
