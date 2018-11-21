@@ -26,7 +26,7 @@ struct AppState {
     config: Config,
 }
 
-#[derive(Clone, Debug)]
+#[derive(Clone)]
 struct Config {
 	caching_timeout: i64,
 	stream_timeout: u64,
@@ -56,6 +56,10 @@ fn load_config() -> Config {
 		});
 	}
 	lazy_static::initialize(&confj);
+
+	fs::write("conf.json", confj.pretty(2)).unwrap_or_else(|_err| {
+		println!("[Warn]: Unable to write configuration!");
+	});
 
 	return Config {
 		caching_timeout: confj["cachingTimeout"].as_i64().unwrap_or(0),
@@ -509,15 +513,10 @@ fn index(_req: &HttpRequest<AppState>) -> Box<Future<Item=HttpResponse, Error=Er
 
 // Load configuration, SSL certs, then attempt to start the program.
 fn main() {
-	println!("[Info]: Loading KatWebX config...");
+	println!("[Info]: Starting KatWebX...");
 	let sys = actix::System::new("katwebx");
 	let conf = load_config();
 	let confd = conf.clone();
-	println!("{:?}", conf);
-
-	//fs::write("conf.json", config.pretty(2)).unwrap_or_else(|_err| {
-	//	println!("[Warn]: Unable to write configuration!");
-	//});
 
 	let mut tconfig = ServerConfig::new(NoClientAuth::new());
 	let cert_file = &mut BufReader::new(File::open("ssl/cert.pem").unwrap_or_else(|_err| {
@@ -545,8 +544,6 @@ fn main() {
 		ServerFlags::HTTP1 | ServerFlags::HTTP2,
 	);
 
-	println!("[Info]: Starting KatWebX...");
-
 	// Request handling
     server::new(move || {
 		App::with_state(AppState{config: confd.clone()})
@@ -568,6 +565,7 @@ fn main() {
 
 	println!("[Info]: Started KatWebX.");
 	let _ = sys.run();
+	println!("\n[Info]: Stopping KatWebX...");
 }
 
 // Unit tests for critical internal functions.
