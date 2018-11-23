@@ -14,8 +14,8 @@ KatWebX is an early work in progress, and you will encounter bugs. **Do not use 
 - [x] Regex-based reverse proxying
 - [x] Automatic proxy compression
 - [ ] On-the-fly config reloading 
-- [ ] HTTP basic authentication
-- [ ] Regex-based auth
+- [x] HTTP basic authentication
+- [x] Regex-based auth
 - [x] Fast file serving
 - [x] Brotli file compression
 - [x] HSTS support
