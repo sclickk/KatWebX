@@ -583,7 +583,7 @@ fn main() {
 		App::with_state(AppState{config: confd.clone()})
 			.default_resource(|r| r.f(index))
 	})
-		.backlog(8192).backlog(100000).maxconnrate(1024)
+		.backlog(8192).maxconn(100000).maxconnrate(4096)
 		.keep_alive(conf.stream_timeout as usize)
 		.bind_with(&conf.tls_addr, move || acceptor.clone())
 		.unwrap_or_else(|_err| {
