@@ -7,6 +7,7 @@ authors = ["kittyhacker101 <kittyhacker101@protonmail.com>"]
 
 [dependencies]
 json = "*"
+base64 = "*"
 futures = "*"
 futures-cpupool = "*"
 bytes = "*"
@@ -20,7 +21,6 @@ regex = "*"
 brotli = "*"
 rustls = "*"
 actix = "*"
-actix-web = { git = "https://github.com/actix/actix-web", default-features = false, features = ["flate2-c", "rust-tls"] }
-
+actix-web = { version = "*", default-features = false, features = ["flate2-c", "rust-tls"] }
 [profile.release]
 lto = true
