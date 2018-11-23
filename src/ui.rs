@@ -81,6 +81,9 @@ pub fn http_error(status: StatusCode, header: &str, body: &str) -> Box<Future<It
 		HttpResponse::Ok()
 			.status(status)
 			.content_encoding(ContentEncoding::Auto)
+			.if_true(status == StatusCode::UNAUTHORIZED, |builder| {
+				builder.header(header::WWW_AUTHENTICATE, "Basic realm=\"Please provide valid credentials to access this resource.\"");
+			})
 			.header(header::SERVER, "KatWebX")
 			.content_type("text/html; charset=utf-8")
 			.body([HEAD, "<title>", header, "</title><h1 class=err>", ERRSVG, &encode_minimal(header), "</h1><p>", &encode_minimal(body), "</p><span class=bottom>Powered by KatWebX</span>"].concat())))

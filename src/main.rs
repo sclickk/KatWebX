@@ -10,23 +10,25 @@ extern crate mime_sniffer;
 extern crate json;
 extern crate regex;
 extern crate bytes;
+extern crate base64;
 mod stream;
 mod ui;
 use actix_web::{actix::Actor, server, server::{RustlsAcceptor, ServerFlags}, client, client::ClientConnector, App, http::{header, header::{HeaderValue, HeaderMap}, Method, ContentEncoding, StatusCode}, HttpRequest, HttpResponse, HttpMessage, AsyncResponder, Error, dev::Payload};
 use futures::future::{Future, result};
-use std::{process, cmp, fs, fs::File, path::Path, io::Read, io::BufReader, collections::HashMap, time::Duration};
+use std::{process, cmp, fs, string::String, fs::File, path::Path, io::Read, io::BufReader, collections::HashMap, time::Duration};
+use base64::decode;
 use mime_sniffer::MimeTypeSniffer;
 use regex::{Regex, NoExpand, RegexSet};
 use rustls::{NoClientAuth, ServerConfig, internal::pemfile::{certs, rsa_private_keys}};
 
 // The default configuration for the server to use.
-const DEFAULT_CONFIG: &str = r#"{"cachingTimeout":4,"streamTimeout":20,"hsts":false,"proxy":[{"location":"proxy.local","host":"https://kittyhacker101.tk"},{"location":"r#localhost\/proxy[0-9]","host":"https://kittyhacker101.tk"}],"redir":[{"location":"localhost/redir","dest":"https://kittyhacker101.tk"},{"location":"r#localhost/redir2.*","dest":"https://google.com"}],"hide":["src", "r#tar.*"],"advanced":{"protect":true,"compressfiles":true,"httpAddr":"[::]:80","tlsAddr":"[::]:443"}}"#;
+const DEFAULT_CONFIG: &str = r#"{"cachingTimeout":4,"streamTimeout":20,"hsts":false,"proxy":[{"location":"proxy.local","host":"https://kittyhacker101.tk"},{"location":"r#localhost/proxy[0-9]","host":"https://kittyhacker101.tk"}],"redir":[{"location":"localhost/redir","dest":"https://kittyhacker101.tk"},{"location":"r#localhost/redir2.*","dest":"https://google.com"}],"auth":[{"location":"r#localhost/demopass.*","login":"admin:passwd"}],"hide":["src","r#tar.*"],"advanced":{"protect":true,"compressfiles":true,"httpAddr":"[::]:80","tlsAddr":"[::]:443"}}"#;
 
 struct AppState {
     config: Config,
 }
 
-#[derive(Clone)]
+#[derive(Clone, Debug)]
 struct Config {
 	caching_timeout: i64,
 	stream_timeout: u64,
@@ -36,26 +38,25 @@ struct Config {
 	lproxy: Vec<String>,
 	lredirx: Vec<String>,
 	lproxyx: Vec<String>,
+	lauthx: Vec<String>,
 	hiddenx: RegexSet,
 	redirx: RegexSet,
 	proxyx: RegexSet,
+	authx: RegexSet,
 	redirmap: HashMap<String, String>,
 	proxymap: HashMap<String, String>,
+	authmap: HashMap<String, String>,
 	protect: bool,
 	compress_files: bool,
 	http_addr: String,
 	tls_addr: String,
 }
 
-fn load_config() -> Config {
-	lazy_static! {
-		static ref rawconf: String = fs::read_to_string("conf.json").unwrap_or(DEFAULT_CONFIG.to_owned());
-		static ref confj: json::JsonValue<> = json::parse(&rawconf).unwrap_or_else(|_err| {
-			println!("[Fatal]: Unable to parse configuration!");
-			process::exit(1);
-		});
-	}
-	lazy_static::initialize(&confj);
+fn load_config(data: String) -> Config {
+	let confj = json::parse(&data).unwrap_or_else(|_err| {
+		println!("[Fatal]: Unable to parse configuration!");
+		process::exit(1);
+	});
 
 	fs::write("conf.json", confj.pretty(2)).unwrap_or_else(|_err| {
 		println!("[Warn]: Unable to write configuration!");
@@ -112,6 +113,19 @@ fn load_config() -> Config {
 			json::JsonValue::Array(array) => map_json(array, "location", "host"),
 			_ => HashMap::new(),
 		},
+
+		lauthx: match &confj["auth"] {
+			json::JsonValue::Array(array) => array_json_regex(array, "location"),
+			_ => Vec::new(),
+		},
+		authx: match &confj["auth"] {
+			json::JsonValue::Array(array) => RegexSet::new(array_json_regex(array, "location").iter()).unwrap_or(RegexSet::new(&["$x"]).unwrap()),
+			_ => RegexSet::new(&["$x"]).unwrap(),
+		},
+		authmap: match &confj["auth"] {
+			json::JsonValue::Array(array) => map_json(array, "location", "login"),
+			_ => HashMap::new(),
+		},
 		protect: confj["advanced"]["protect"].as_bool().unwrap_or(false),
 		compress_files: confj["advanced"]["compressFiles"].as_bool().unwrap_or(false),
 		http_addr: confj["advanced"]["httpAddr"].as_str().unwrap_or("[::]:80").to_owned(),
@@ -123,9 +137,11 @@ fn load_config() -> Config {
 // Hidden hosts can be virtual-host based (hidden.local) or regex-based.
 // Redirects can be either full path based (localhost/redir) or regex-based.
 // Reverse proxying can be either virtual-host based (proxy.local) or regex-based.
-fn handle_path(path: &str, host: &str, conf: Config) -> (String, String, Option<String>) {
+fn handle_path(path: &str, host: &str, auth: &str, conf: Config) -> (String, String, Option<String>) {
 	let mut path = path.to_owned();
 	let mut host = trim_port(host.to_owned());
+	let auth = &decode(&trim_prefix("Basic ".to_string(), auth.to_string())).unwrap_or(vec![]);
+	let auth = &*String::from_utf8_lossy(auth);
 
 	let fp = &[&*host, &*path].concat();
 	match path {
@@ -135,20 +151,23 @@ fn handle_path(path: &str, host: &str, conf: Config) -> (String, String, Option<
 		_ => (),
 	}
 
+	if conf.authx.is_match(fp) {
+		let mut r = "$x";
+		match conf.authx.matches(fp).iter().next() {
+			Some(regx) => r = &conf.lauthx[regx],
+			None => (),
+		}
+		match conf.authmap.get(&["r#", r].concat()) {
+			Some(eauth) => {
+				if auth != eauth {
+					return ("unauth".to_owned(), "redir".to_owned(), None)
+				}
+			},
+			None => (),
+		};
+	}
+
 	match host {
-	 	_ if host.len() < 1 || &host[..1] == "." || host.contains("/") || host.contains("\\") => host = "html".to_owned(),
-		_ if conf.lredir.binary_search(fp).is_ok() => {
-			match conf.redirmap.get(fp) {
-				Some(link) => return (link.to_owned(), "redir".to_owned(), None),
-				None => (),
-			};
-		},
-		_ if conf.lproxy.binary_search(&host).is_ok() => {
-			match conf.proxymap.get(&host) {
-				Some(link) => return ([link.to_owned(), trim_suffix("index.html".to_owned(), path)].concat(), "proxy".to_owned(), None),
-				None => (),
-			};
-		},
 		_ if conf.redirx.is_match(fp) => {
 			let mut r = "$x";
 			match conf.redirx.matches(fp).iter().next() {
@@ -157,6 +176,12 @@ fn handle_path(path: &str, host: &str, conf: Config) -> (String, String, Option<
 			}
 			match conf.redirmap.get(&["r#", r].concat()) {
 				Some(link) => return ([link.to_owned(), trim_regex(r, &fp)].concat(), "redir".to_owned(), None),
+				None => (),
+			};
+		},
+		_ if conf.lredir.binary_search(fp).is_ok() => {
+			match conf.redirmap.get(fp) {
+				Some(link) => return (link.to_owned(), "redir".to_owned(), None),
 				None => (),
 			};
 		},
@@ -171,8 +196,15 @@ fn handle_path(path: &str, host: &str, conf: Config) -> (String, String, Option<
 				None => (),
 			};
 		},
+		_ if conf.lproxy.binary_search(&host).is_ok() => {
+			match conf.proxymap.get(&host) {
+				Some(link) => return ([link.to_owned(), trim_suffix("index.html".to_owned(), path)].concat(), "proxy".to_owned(), None),
+				None => (),
+			};
+		},
 		_ if conf.hidden.binary_search(&host).is_ok() => host = "html".to_owned(),
 		_ if conf.hiddenx.is_match(&host) => host = "html".to_owned(),
+		_ if host.len() < 1 || &host[..1] == "." || host.contains("/") || host.contains("\\") => host = "html".to_owned(),
 		_ if !Path::new(&host).exists() => host = "html".to_owned(),
 		_ => (),
 	};
@@ -407,12 +439,13 @@ fn index(_req: &HttpRequest<AppState>) -> Box<Future<Item=HttpResponse, Error=Er
 		return redir(&["https://", &host, _req.path()].concat());
 	}
 
-	let (path, host, fp) = handle_path(_req.path(), conn_info.host(), conf.clone());
+	let blankhead = &HeaderValue::from_static("");
+	let (path, host, fp) = handle_path(_req.path(), conn_info.host(), _req.headers().get(header::AUTHORIZATION).unwrap_or(blankhead).to_str().unwrap_or(""), conf.clone());
 	//println!("{:?}", [&trim_port(conn_info.host().to_owned()), _req.path()].concat());
 
 	if host == "redir" {
-		if path == "forbid" {
-			return ui::http_error(StatusCode::FORBIDDEN, "403 Forbidden", "You do not have permission to access this resource.")
+		if path == "unauth" {
+			return ui::http_error(StatusCode::UNAUTHORIZED, "401 Unauthorized", "Valid credentials are required to acccess this resource.")
 		}
 		return redir(&path);
 	}
@@ -434,8 +467,7 @@ fn index(_req: &HttpRequest<AppState>) -> Box<Future<Item=HttpResponse, Error=Er
 	let mim = trim_suffix("; charset=utf-8".to_owned(), mime.to_owned());
 
 	// If the client accepts a brotli compressed response, then modify full_path to send one.
-	let be = &HeaderValue::from_static("");
-	let ce = _req.headers().get(header::ACCEPT_ENCODING).unwrap_or(be).to_str().unwrap_or("");
+	let ce = _req.headers().get(header::ACCEPT_ENCODING).unwrap_or(blankhead).to_str().unwrap_or("");
 	if ce.contains("br") {
 		if conf.compress_files {
 			match stream::get_compressed_file(&*full_path, mim) {
@@ -517,7 +549,8 @@ fn index(_req: &HttpRequest<AppState>) -> Box<Future<Item=HttpResponse, Error=Er
 fn main() {
 	println!("[Info]: Starting KatWebX...");
 	let sys = actix::System::new("katwebx");
-	let conf = load_config();
+	let conf = load_config(fs::read_to_string("conf.json").unwrap_or(DEFAULT_CONFIG.to_owned()));
+	println!("{:?}", conf);
 	let confd = conf.clone();
 
 	let mut tconfig = ServerConfig::new(NoClientAuth::new());
@@ -575,25 +608,15 @@ fn main() {
 mod tests {
 	use *;
 	fn default_conf() -> Config {
-		return Config {
-			caching_timeout: 4,
-			stream_timeout: 20,
-			hsts: false,
-			hidden: vec!["r#tar.*".into(), "redir".into(), "src".into(), "ssl".into()],
-			lredir: vec!["localhost/redir".into(), "r#localhost/redir2.*".into()],
-			lproxy: vec!["proxy.local".into(), "r#localhost/proxy[0-9]".into()],
-			lredirx: vec!["localhost/redir2.*".into()],
-			lproxyx: vec!["localhost/proxy[0-9]".into()],
-			hiddenx: RegexSet::new(&["tar.*"]).unwrap(),
-			redirx: RegexSet::new(&["localhost/redir2.*"]).unwrap(),
-			proxyx: RegexSet::new(&["localhost/proxy[0-9]"]).unwrap(),
-			redirmap: [("localhost/redir".into(), "https://kittyhacker101.tk".into()), ("r#localhost/redir2.*".into(), "https://google.com".into())].iter().cloned().collect(),
-			proxymap: [("proxy.local".into(), "https://kittyhacker101.tk".into()), ("r#localhost/proxy[0-9]".into(), "https://kittyhacker101.tk".into())].iter().cloned().collect(),
-			protect: true,
-			compress_files: false,
-			http_addr: "[::]:80".into(),
-			tls_addr: "[::]:443".into(),
-		};
+		return load_config(DEFAULT_CONFIG.to_owned());
+	}
+	#[test]
+	fn test_conf_defaults() {
+		let conf = default_conf();
+		assert_eq!(conf.caching_timeout, 4);
+		assert_eq!(conf.stream_timeout, 20);
+		assert_eq!(conf.hsts, false);
+		assert_eq!(conf.protect, true);
 	}
 	#[test]
 	fn test_trim_port() {
