@@ -115,7 +115,7 @@ fn handle_path(path: &str, host: &str, auth: &str, c: Config) -> (String, String
 // Reverse proxy a request, passing through any compression.
 // This cannot proxy websockets, because it removes the "Connection" HTTP header.
 // Hop-by-hop headers are removed, to allow connection reuse.
-fn proxy_request(path: String, method: Method, headers: &HeaderMap, body: Payload, mut client_ip: String, timeout: u64) -> Box<Future<Item=HttpResponse, Error=Error>> {
+fn proxy_request(path: &str, method: Method, headers: &HeaderMap, body: Payload, client_ip: &str, timeout: u64) -> Box<Future<Item=HttpResponse, Error=Error>> {
 	let re = client::ClientRequest::build()
 		.with_connector(
 			ClientConnector::default()
@@ -127,15 +127,18 @@ fn proxy_request(path: String, method: Method, headers: &HeaderMap, body: Payloa
 			for (key, value) in headers.iter() {
 				match key.as_str() {
 					"Connection" | "Proxy-Connection" | "Keep-Alive" | "Proxy-Authenticate" | "Proxy-Authorization" | "Te" | "Trailer" | "Transfer-Encoding" | "Upgrade" => (),
-					"X-Forwarded-For" => client_ip = [value.to_str().unwrap_or("127.0.0.1"), ", ", &client_ip].concat(),
+					"X-Forwarded-For" => {
+						req.header("X-Forwarded-For", [value.to_str().unwrap_or("127.0.0.1"), ", ", client_ip].concat());
+						continue
+					},
 					_ => {
 						req.header(key.to_owned(), value.to_owned());
 						continue
 					},
 				};
 			}
-			req.header("X-Forwarded-For", client_ip);
 		})
+		.set_header_if_none("X-Forwarded-For", client_ip)
 		.set_header_if_none(header::ACCEPT_ENCODING, "none")
 		.set_header_if_none(header::USER_AGENT, "KatWebX-Proxy")
 		.streaming(body);
@@ -302,7 +305,7 @@ fn index(_req: &HttpRequest) -> Box<Future<Item=HttpResponse, Error=Error>> {
 	}
 
 	if host == "proxy" {
-		return proxy_request(path, _req.method().to_owned(), _req.headers(), _req.payload(), conn_info.remote().unwrap_or("127.0.0.1").to_owned(), conf.stream_timeout)
+		return proxy_request(&path, _req.method().to_owned(), _req.headers(), _req.payload(), conn_info.remote().unwrap_or("127.0.0.1"), conf.stream_timeout)
 	}
 
 	if _req.method() != Method::GET && _req.method() != Method::HEAD {
