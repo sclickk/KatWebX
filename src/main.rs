@@ -23,15 +23,15 @@ use mime_sniffer::MimeTypeSniffer;
 use regex::{Regex, NoExpand};
 use rustls::{NoClientAuth, ServerConfig, internal::pemfile::{certs, rsa_private_keys}};
 
-struct AppState {
-    config: Config,
+lazy_static! {
+	static ref conf: Config = Config::load_config("conf.json".to_owned(), true);
 }
 
 // Generate the correct host and path, from raw data.
 // Hidden hosts can be virtual-host based (hidden.local) or regex-based.
 // Redirects can be either full path based (localhost/redir) or regex-based.
 // Reverse proxying can be either virtual-host based (proxy.local) or regex-based.
-fn handle_path(path: &str, host: &str, auth: &str, conf: Config) -> (String, String, Option<String>) {
+fn handle_path(path: &str, host: &str, auth: &str, c: Config) -> (String, String, Option<String>) {
 	let mut path = path.to_owned();
 	let mut host = trim_port(host.to_owned());
 	let auth = &decode(&trim_prefix("Basic ".to_string(), auth.to_string())).unwrap_or(vec![]);
@@ -45,13 +45,13 @@ fn handle_path(path: &str, host: &str, auth: &str, conf: Config) -> (String, Str
 		_ => (),
 	}
 
-	if conf.authx.is_match(fp) {
+	if c.authx.is_match(fp) {
 		let mut r = "$x";
-		match conf.authx.matches(fp).iter().next() {
-			Some(regx) => r = &conf.lauthx[regx],
+		match c.authx.matches(fp).iter().next() {
+			Some(regx) => r = &c.lauthx[regx],
 			None => (),
 		}
-		match conf.authmap.get(&["r#", r].concat()) {
+		match c.authmap.get(&["r#", r].concat()) {
 			Some(eauth) => {
 				if auth != eauth {
 					return ("unauth".to_owned(), "redir".to_owned(), None)
@@ -62,10 +62,10 @@ fn handle_path(path: &str, host: &str, auth: &str, conf: Config) -> (String, Str
 	}
 
 	match host {
-		_ if conf.redirx.is_match(fp) => {
+		_ if c.redirx.is_match(fp) => {
 			let mut r = "$x";
-			match conf.redirx.matches(fp).iter().next() {
-				Some(regx) => r = &conf.lredirx[regx],
+			match c.redirx.matches(fp).iter().next() {
+				Some(regx) => r = &c.lredirx[regx],
 				None => (),
 			}
 			match conf.redirmap.get(&["r#", r].concat()) {
@@ -73,31 +73,31 @@ fn handle_path(path: &str, host: &str, auth: &str, conf: Config) -> (String, Str
 				None => (),
 			};
 		},
-		_ if conf.lredir.binary_search(fp).is_ok() => {
-			match conf.redirmap.get(fp) {
+		_ if c.lredir.binary_search(fp).is_ok() => {
+			match c.redirmap.get(fp) {
 				Some(link) => return (link.to_owned(), "redir".to_owned(), None),
 				None => (),
 			};
 		},
-		_ if conf.proxyx.is_match(fp) => {
+		_ if c.proxyx.is_match(fp) => {
 			let mut r = "$x";
-			match conf.proxyx.matches(fp).iter().next() {
-				Some(regx) => r = &conf.lproxyx[regx],
+			match c.proxyx.matches(fp).iter().next() {
+				Some(regx) => r = &c.lproxyx[regx],
 				None => (),
 			}
-			match conf.proxymap.get(&["r#", r].concat()) {
+			match c.proxymap.get(&["r#", r].concat()) {
 				Some(link) => return ([link.to_owned(), trim_regex(r, &fp)].concat(), "proxy".to_owned(), None),
 				None => (),
 			};
 		},
-		_ if conf.lproxy.binary_search(&host).is_ok() => {
-			match conf.proxymap.get(&host) {
+		_ if c.lproxy.binary_search(&host).is_ok() => {
+			match c.proxymap.get(&host) {
 				Some(link) => return ([link.to_owned(), trim_suffix("index.html".to_owned(), path)].concat(), "proxy".to_owned(), None),
 				None => (),
 			};
 		},
-		_ if conf.hidden.binary_search(&host).is_ok() => host = "html".to_owned(),
-		_ if conf.hiddenx.is_match(&host) => host = "html".to_owned(),
+		_ if c.hidden.binary_search(&host).is_ok() => host = "html".to_owned(),
+		_ if c.hiddenx.is_match(&host) => host = "html".to_owned(),
 		_ if host.len() < 1 || &host[..1] == "." || host.contains("/") || host.contains("\\") => host = "html".to_owned(),
 		_ if !Path::new(&host).exists() => host = "html".to_owned(),
 		_ => (),
@@ -273,13 +273,12 @@ fn get_mime(path: &str) -> String {
 }
 
 // HTTP(S) request handling.
-fn index(_req: &HttpRequest<AppState>) -> Box<Future<Item=HttpResponse, Error=Error>> {
-	let conf = _req.state().config.clone();
+fn index(_req: &HttpRequest) -> Box<Future<Item=HttpResponse, Error=Error>> {
 	let conn_info = _req.connection_info();
 
 	if conf.hsts && conn_info.scheme() == "http" {
 		let mut host = trim_port(conn_info.host().to_owned());
-		let tls_host = conf.tls_addr;
+		let tls_host = conf.tls_addr.to_owned();
 		if trim_host(tls_host.to_owned()) != ":443" {
 			host = host + &trim_host(tls_host.to_owned());
 		}
@@ -396,8 +395,7 @@ fn index(_req: &HttpRequest<AppState>) -> Box<Future<Item=HttpResponse, Error=Er
 fn main() {
 	println!("[Info]: Starting KatWebX...");
 	let sys = actix::System::new("katwebx");
-	let conf = Config::load_config("conf.json".to_owned(), true);
-	let confd = conf.clone();
+	lazy_static::initialize(&conf);
 
 	let mut tconfig = ServerConfig::new(NoClientAuth::new());
 	let cert_file = &mut BufReader::new(File::open("ssl/cert.pem").unwrap_or_else(|_err| {
@@ -426,8 +424,8 @@ fn main() {
 	);
 
 	// Request handling
-    server::new(move || {
-		App::with_state(AppState{config: confd.clone()})
+    server::new(|| {
+		App::new()
 			.default_resource(|r| r.f(index))
 	})
 		.backlog(8192).maxconn(100000).maxconnrate(4096)
@@ -452,9 +450,9 @@ fn main() {
 // Unit tests for critical internal functions.
 #[cfg(test)]
 mod tests {
-	use *;
-	fn default_conf() -> Config {
-		return Config::load_config(config::DEFAULT_CONFIG.to_owned(), false);
+	use {config, handle_path, trim_port, trim_host, trim_prefix, trim_suffix};
+	fn default_conf() -> config::Config {
+		return config::Config::load_config(config::DEFAULT_CONFIG.to_owned(), false);
 	}
 	#[test]
 	fn test_conf_defaults() {
