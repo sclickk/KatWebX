@@ -16,7 +16,7 @@ lazy_static! {
 	pub static ref gztypes: Vec<&'static str> = vec!["application/javascript", "application/json", "application/x-javascript", "image/svg+xml", "text/css", "text/csv", "text/html", "text/plain", "text/xml"];
 }
 
-pub fn get_compressed_file(path: &str, mime: String) -> Result<String, Error> {
+pub fn get_compressed_file(path: &str, mime: &str) -> Result<String, Error> {
 	if Path::new(&[path, ".br"].concat()).exists() {
 		return Ok([path, ".br"].concat())
 	}

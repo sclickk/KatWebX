@@ -32,16 +32,14 @@ lazy_static! {
 // Redirects can be either full path based (localhost/redir) or regex-based.
 // Reverse proxying can be either virtual-host based (proxy.local) or regex-based.
 fn handle_path(path: &str, host: &str, auth: &str, c: Config) -> (String, String, Option<String>) {
-	let mut path = path.to_owned();
 	let mut host = trim_port(host.to_owned());
-	let auth = &decode(&trim_prefix("Basic ".to_string(), auth.to_string())).unwrap_or(vec![]);
+	let auth = &decode(trim_prefix("Basic ", auth)).unwrap_or(vec![]);
 	let auth = &*String::from_utf8_lossy(auth);
 
-	let fp = &[&*host, &*path].concat();
+	let fp = &[&host, path].concat();
 	match path {
 		_ if path.ends_with("/index.html") => return ("./".to_owned(), "redir".to_owned(), None),
 		_ if path.contains("..") => return ("..".to_owned(), "redir".to_owned(), None),
-		_ if path.ends_with("/") => path.push_str("index.html"),
 		_ => (),
 	}
 
@@ -92,7 +90,7 @@ fn handle_path(path: &str, host: &str, auth: &str, c: Config) -> (String, String
 		},
 		_ if c.lproxy.binary_search(&host).is_ok() => {
 			match c.proxymap.get(&host) {
-				Some(link) => return ([link.to_owned(), trim_suffix("index.html".to_owned(), path)].concat(), "proxy".to_owned(), None),
+				Some(link) => return ([link, path].concat(), "proxy".to_owned(), None),
 				None => (),
 			};
 		},
@@ -103,8 +101,15 @@ fn handle_path(path: &str, host: &str, auth: &str, c: Config) -> (String, String
 		_ => (),
 	};
 
-	let full_path = [&*host, &*path].concat();
-	return (path, host, Some(full_path))
+	let pathn;
+	if path.ends_with("/") {
+		pathn = [path, "index.html"].concat()
+	} else {
+		pathn = path.to_owned()
+	}
+	let full_path = [&*host, &*pathn].concat();
+
+	return (pathn, host.to_owned(), Some(full_path))
 }
 
 // Reverse proxy a request, passing through any compression.
@@ -200,17 +205,17 @@ fn trim_host(path: String) -> String {
 }
 
 // Trim a substring (prefix) from the beginning of a string.
-fn trim_prefix(prefix: String, root: String) -> String {
-	match root.find(&*prefix) {
-		Some(i) => return root[i+prefix.len()..].to_owned(),
+fn trim_prefix<'a>(prefix: &'a str, root: &'a str) -> &'a str {
+	match root.find(prefix) {
+		Some(i) => return &root[i+prefix.len()..],
 		None => return root,
 	}
 }
 
 // Trim a substring (suffix) from the end of a string.
-fn trim_suffix(suffix: String, root: String) -> String {
-	match root.rfind(&*suffix) {
-		Some(i) => return root[..i].to_owned(),
+fn trim_suffix<'a>(suffix: &'a str, root: &'a str) -> &'a str {
+	match root.rfind(suffix) {
+		Some(i) => return &root[..i],
 		None => return root,
 	}
 }
@@ -310,13 +315,13 @@ fn index(_req: &HttpRequest) -> Box<Future<Item=HttpResponse, Error=Error>> {
 	};
 
 	let mime = get_mime(&full_path);
-	let mim = trim_suffix("; charset=utf-8".to_owned(), mime.to_owned());
+	let mim = trim_suffix("; charset=utf-8", &mime);
 
 	// If the client accepts a brotli compressed response, then modify full_path to send one.
 	let ce = _req.headers().get(header::ACCEPT_ENCODING).unwrap_or(blankhead).to_str().unwrap_or("");
 	if ce.contains("br") {
 		if conf.compress_files {
-			match stream::get_compressed_file(&*full_path, mim) {
+			match stream::get_compressed_file(&&*full_path, mim) {
 				Ok(path) => full_path = path,
 				Err(_) => (),
 			}
@@ -478,15 +483,15 @@ mod tests {
 	}
 	#[test]
 	fn test_trim_prefix() {
-		assert_eq!(trim_prefix("str".to_owned(), "string".to_owned()), "ing");
-		assert_eq!(trim_prefix("no".to_owned(), "string".to_owned()), "string");
-		assert_eq!(trim_prefix("ing".to_owned(), "string".to_owned()), "");
+		assert_eq!(trim_prefix("str", "string"), "ing");
+		assert_eq!(trim_prefix("no", "string"), "string");
+		assert_eq!(trim_prefix("ing", "string"), "");
 	}
 	#[test]
 	fn test_trim_suffix() {
-		assert_eq!(trim_suffix("ing".to_owned(), "string".to_owned()), "str");
-		assert_eq!(trim_suffix("no".to_owned(), "string".to_owned()), "string");
-		assert_eq!(trim_suffix("str".to_owned(), "string".to_owned()), "");
+		assert_eq!(trim_suffix("ing", "string"), "str");
+		assert_eq!(trim_suffix("no", "string"), "string");
+		assert_eq!(trim_suffix("str", "string"), "");
 	}
 	#[test]
 	fn test_handle_path_base() {

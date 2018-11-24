@@ -3,7 +3,6 @@ extern crate json;
 extern crate regex;
 use std::{collections::HashMap, fs, process};
 use regex::RegexSet;
-use trim_prefix;
 
 // The default configuration for the server to use.
 pub const DEFAULT_CONFIG: &str = r#"{"cachingTimeout":4,"streamTimeout":20,"hsts":false,"proxy":[{"location":"proxy.local","host":"https://kittyhacker101.tk"},{"location":"r#localhost/proxy[0-9]","host":"https://kittyhacker101.tk"}],"redir":[{"location":"localhost/redir","dest":"https://kittyhacker101.tk"},{"location":"r#localhost/redir2.*","dest":"https://google.com"}],"auth":[{"location":"r#localhost/demopass.*","login":"admin:passwd"}],"hide":["src","r#tar.*"],"advanced":{"protect":true,"compressfiles":true,"httpAddr":"[::]:80","tlsAddr":"[::]:443"}}"#;
@@ -160,7 +159,7 @@ fn array_json_regex(array: &json::Array, attr: &str) -> Vec<String> {
 		 	itemt = item[attr].as_str().unwrap_or("").to_owned();
 		}
 		if itemt.starts_with("r#") {
-			tmp.push(trim_prefix("r#".to_owned(), itemt))
+			tmp.push(itemt[2..].to_owned())
 		}
 	}
 	tmp.sort_unstable();
