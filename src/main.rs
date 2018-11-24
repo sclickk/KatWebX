@@ -32,7 +32,7 @@ lazy_static! {
 // Redirects can be either full path based (localhost/redir) or regex-based.
 // Reverse proxying can be either virtual-host based (proxy.local) or regex-based.
 fn handle_path(path: &str, host: &str, auth: &str, c: Config) -> (String, String, Option<String>) {
-	let mut host = trim_port(host.to_owned());
+	let mut host = trim_port(host).to_owned();
 	let auth = &decode(trim_prefix("Basic ", auth)).unwrap_or(vec![]);
 	let auth = &*String::from_utf8_lossy(auth);
 
@@ -175,32 +175,32 @@ fn proxy_request(path: String, method: Method, headers: &HeaderMap, body: Payloa
 }
 
 // Trim the port from an IPv4 address, IPv6 address, or domain:port.
-fn trim_port(path: String) -> String {
+fn trim_port<'a>(path: &'a str) -> &'a str {
 	if path.contains("[") && path.contains("]") {
 		match path.rfind("]:") {
-			Some(i) => return path[..i+1].to_owned(),
+			Some(i) => return &path[..i+1],
 			None => return path,
 		}
 	}
 
 	match path.rfind(":") {
-		Some(i) => return path[..i].to_owned(),
+		Some(i) => return &path[..i],
 		None => return path,
 	}
 }
 
 // Trim the host from an IPv4 address, IPv6 address, or domain:port.
-fn trim_host(path: String) -> String {
+fn trim_host<'a>(path: &'a str) -> &'a str {
 	if path.contains("[") && path.contains("]") {
 		match path.rfind("]:") {
-			Some(i) => return path[i+1..].to_owned(),
-			None => return "".to_owned(),
+			Some(i) => return &path[i+1..],
+			None => return "",
 		}
 	}
 
 	match path.rfind(":") {
-		Some(i) => return path[i..].to_owned(),
-		None => return "".to_owned(),
+		Some(i) => return &path[i..],
+		None => return "",
 	}
 }
 
@@ -282,12 +282,12 @@ fn index(_req: &HttpRequest) -> Box<Future<Item=HttpResponse, Error=Error>> {
 	let conn_info = _req.connection_info();
 
 	if conf.hsts && conn_info.scheme() == "http" {
-		let mut host = trim_port(conn_info.host().to_owned());
+		let host = trim_port(conn_info.host());
 		let tls_host = conf.tls_addr.to_owned();
-		if trim_host(tls_host.to_owned()) != ":443" {
-			host = host + &trim_host(tls_host.to_owned());
+		if trim_host(&tls_host) == ":443" {
+			return redir(&["https://", &host, _req.path()].concat());
 		}
-		return redir(&["https://", &host, _req.path()].concat());
+		return redir(&["https://", &host, trim_host(&tls_host), _req.path()].concat());
 	}
 
 	let blankhead = &HeaderValue::from_static("");
@@ -469,17 +469,17 @@ mod tests {
 	}
 	#[test]
 	fn test_trim_port() {
-		assert_eq!(trim_port("127.0.0.1:8080".to_owned()), "127.0.0.1");
-		assert_eq!(trim_port("127.0.0.1".to_owned()), "127.0.0.1");
-		assert_eq!(trim_port("[::1]:8081".to_owned()), "[::1]");
-		assert_eq!(trim_port("[::1]".to_owned()), "[::1]");
+		assert_eq!(trim_port("127.0.0.1:8080"), "127.0.0.1");
+		assert_eq!(trim_port("127.0.0.1"), "127.0.0.1");
+		assert_eq!(trim_port("[::1]:8081"), "[::1]");
+		assert_eq!(trim_port("[::1]"), "[::1]");
 	}
 	#[test]
 	fn test_trim_host() {
-		assert_eq!(trim_host("127.0.0.1:8080".to_owned()), ":8080");
-		assert_eq!(trim_host("127.0.0.1".to_owned()), "");
-		assert_eq!(trim_host("[::1]:8081".to_owned()), ":8081");
-		assert_eq!(trim_host("[::1]".to_owned()), "");
+		assert_eq!(trim_host("127.0.0.1:8080"), ":8080");
+		assert_eq!(trim_host("127.0.0.1"), "");
+		assert_eq!(trim_host("[::1]:8081"), ":8081");
+		assert_eq!(trim_host("[::1]"), "");
 	}
 	#[test]
 	fn test_trim_prefix() {
