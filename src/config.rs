@@ -1,4 +1,4 @@
-// Conf.rs handles config parsing and reloading.
+// Config.rs handles configuration parsing.
 extern crate json;
 extern crate regex;
 use std::{collections::HashMap, fs, process};
