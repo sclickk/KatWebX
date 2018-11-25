@@ -32,11 +32,12 @@ lazy_static! {
 // Redirects can be either full path based (localhost/redir) or regex-based.
 // Reverse proxying can be either virtual-host based (proxy.local) or regex-based.
 fn handle_path(path: &str, host: &str, auth: &str, c: Config) -> (String, String, Option<String>) {
-	let mut host = trim_port(host).to_owned();
+	let mut host = trim_port(host);
+	let hostn = host.to_owned();
 	let auth = &decode(trim_prefix("Basic ", auth)).unwrap_or(vec![]);
 	let auth = &*String::from_utf8_lossy(auth);
 
-	let fp = &[&host, path].concat();
+	let fp = &[host, path].concat();
 	match path {
 		_ if path.ends_with("/index.html") => return ("./".to_owned(), "redir".to_owned(), None),
 		_ if path.contains("..") => return ("..".to_owned(), "redir".to_owned(), None),
@@ -88,16 +89,16 @@ fn handle_path(path: &str, host: &str, auth: &str, c: Config) -> (String, String
 				None => (),
 			};
 		},
-		_ if c.lproxy.binary_search(&host).is_ok() => {
-			match c.proxymap.get(&host) {
+		_ if c.lproxy.binary_search(&hostn).is_ok() => {
+			match c.proxymap.get(host) {
 				Some(link) => return ([link, path].concat(), "proxy".to_owned(), None),
 				None => (),
 			};
 		},
-		_ if c.hidden.binary_search(&host).is_ok() => host = "html".to_owned(),
-		_ if c.hiddenx.is_match(&host) => host = "html".to_owned(),
-		_ if host.len() < 1 || &host[..1] == "." || host.contains("/") || host.contains("\\") => host = "html".to_owned(),
-		_ if !Path::new(&host).exists() => host = "html".to_owned(),
+		_ if c.hidden.binary_search(&hostn).is_ok() => host = "html",
+		_ if c.hiddenx.is_match(&hostn) => host = "html",
+		_ if host.len() < 1 || &host[..1] == "." || host.contains("/") || host.contains("\\") => host = "html",
+		_ if !Path::new(&hostn).exists() => host = "html",
 		_ => (),
 	};
 
@@ -107,7 +108,7 @@ fn handle_path(path: &str, host: &str, auth: &str, c: Config) -> (String, String
 	} else {
 		pathn = path.to_owned()
 	}
-	let full_path = [&*host, &*pathn].concat();
+	let full_path = [host, &*pathn].concat();
 
 	return (pathn, host.to_owned(), Some(full_path))
 }
