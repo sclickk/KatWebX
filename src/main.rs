@@ -1,3 +1,9 @@
+#![cfg_attr(feature = "cargo-clippy", warn(pedantic))]
+#![cfg_attr(feature = "cargo-clippy", deny(cargo))]
+#![cfg_attr(feature = "cargo-clippy", deny(all))]
+#![cfg_attr(feature = "cargo-clippy", allow(multiple_crate_versions))]
+#![cfg_attr(feature = "cargo-clippy", allow(borrow_interior_mutable_const))]
+
 #[macro_use]
 extern crate lazy_static;
 extern crate futures;
@@ -31,10 +37,10 @@ lazy_static! {
 // Hidden hosts can be virtual-host based (hidden.local) or regex-based.
 // Redirects can be either full path based (localhost/redir) or regex-based.
 // Reverse proxying can be either virtual-host based (proxy.local) or regex-based.
-fn handle_path(path: &str, host: &str, auth: &str, c: Config) -> (String, String, Option<String>) {
+fn handle_path(path: &str, host: &str, auth: &str, c: &Config) -> (String, String, Option<String>) {
 	let mut host = trim_port(host);
 	let hostn = host.to_owned();
-	let auth = &decode(trim_prefix("Basic ", auth)).unwrap_or(vec![]);
+	let auth = &decode(trim_prefix("Basic ", auth)).unwrap_or_else(|_| vec![]);
 	let auth = &*String::from_utf8_lossy(auth);
 
 	let fp = &[host, path].concat();
@@ -46,71 +52,47 @@ fn handle_path(path: &str, host: &str, auth: &str, c: Config) -> (String, String
 
 	if c.authx.is_match(fp) {
 		let mut r = "$x";
-		match c.authx.matches(fp).iter().next() {
-			Some(regx) => r = &c.lauthx[regx],
-			None => (),
+		if let Some(regx) = c.authx.matches(fp).iter().next() {r = &c.lauthx[regx]};
+		if let Some(eauth) = c.authmap.get(&["r#", r].concat()) {
+			if auth != eauth {
+				return ("unauth".to_owned(), "redir".to_owned(), None)
+			}
 		}
-		match c.authmap.get(&["r#", r].concat()) {
-			Some(eauth) => {
-				if auth != eauth {
-					return ("unauth".to_owned(), "redir".to_owned(), None)
-				}
-			},
-			None => (),
-		};
 	}
 
 	match host {
 		_ if c.redirx.is_match(fp) => {
 			let mut r = "$x";
-			match c.redirx.matches(fp).iter().next() {
-				Some(regx) => r = &c.lredirx[regx],
-				None => (),
-			}
-			match conf.redirmap.get(&["r#", r].concat()) {
-				Some(link) => return ([link.to_owned(), trim_regex(r, &fp)].concat(), "redir".to_owned(), None),
-				None => (),
-			};
+			if let Some(regx) = c.redirx.matches(fp).iter().next() {r = &c.lredirx[regx]}
+			if let Some(link) = conf.redirmap.get(&["r#", r].concat()) {return ([link.to_owned(), trim_regex(r, &fp)].concat(), "redir".to_owned(), None)}
 		},
 		_ if c.lredir.binary_search(fp).is_ok() => {
-			match c.redirmap.get(fp) {
-				Some(link) => return (link.to_owned(), "redir".to_owned(), None),
-				None => (),
-			};
+			if let Some(link) = c.redirmap.get(fp) {return (link.to_owned(), "redir".to_owned(), None)}
 		},
 		_ if c.proxyx.is_match(fp) => {
 			let mut r = "$x";
-			match c.proxyx.matches(fp).iter().next() {
-				Some(regx) => r = &c.lproxyx[regx],
-				None => (),
-			}
-			match c.proxymap.get(&["r#", r].concat()) {
-				Some(link) => return ([link.to_owned(), trim_regex(r, &fp)].concat(), "proxy".to_owned(), None),
-				None => (),
-			};
+			if let Some(regx) = c.proxyx.matches(fp).iter().next() {r = &c.lproxyx[regx]}
+			if let Some(link) = c.proxymap.get(&["r#", r].concat()) {return ([link.to_owned(), trim_regex(r, &fp)].concat(), "proxy".to_owned(), None)}
 		},
 		_ if c.lproxy.binary_search(&hostn).is_ok() => {
-			match c.proxymap.get(host) {
-				Some(link) => return ([link, path].concat(), "proxy".to_owned(), None),
-				None => (),
-			};
+			if let Some(link) = c.proxymap.get(host) {return ([link, path].concat(), "proxy".to_owned(), None)}
 		},
 		_ if c.hidden.binary_search(&hostn).is_ok() => host = "html",
 		_ if c.hiddenx.is_match(&hostn) => host = "html",
-		_ if host.len() < 1 || &host[..1] == "." || host.contains("/") || host.contains("\\") => host = "html",
+		_ if host.is_empty() || &host[..1] == "." || host.contains('/') || host.contains('\\') => host = "html",
 		_ if !Path::new(&hostn).exists() => host = "html",
 		_ => (),
 	};
 
 	let pathn;
-	if path.ends_with("/") {
+	if path.ends_with('/') {
 		pathn = [path, "index.html"].concat()
 	} else {
 		pathn = path.to_owned()
 	}
 	let full_path = [host, &*pathn].concat();
 
-	return (pathn, host.to_owned(), Some(full_path))
+	(pathn, host.to_owned(), Some(full_path))
 }
 
 // Reverse proxy a request, passing through any compression.
@@ -150,7 +132,7 @@ fn proxy_request(path: &str, method: Method, headers: &HeaderMap, body: Payload,
 		Err(_) => return ui::http_error(StatusCode::BAD_GATEWAY, "502 Bad Gateway", "The server was acting as a proxy and received an invalid response from the upstream server."),
 	}
 
-	return req.send().and_then(|resp| {
+	req.send().and_then(|resp| {
 			Ok(HttpResponse::Ok()
 				.status(resp.status())
 				.if_true(true, |req| {
@@ -165,81 +147,78 @@ fn proxy_request(path: &str, method: Method, headers: &HeaderMap, body: Payload,
 						req.header(key.to_owned(), value.to_owned());
 					}
 
-					match resp.cookies() {
-						Ok(c) => {for ck in c.iter() {
-							req.cookie(ck.to_owned());
-						}},
-						Err(_) => (),
-					}
+					if let Ok(c) = resp.cookies() {{for ck in &c {
+						req.cookie(ck.to_owned());
+					}}}
 				})
 				.streaming(resp.payload()))
 		}).or_else(|_| {
-			return ui::http_error(StatusCode::BAD_GATEWAY, "502 Bad Gateway", "The server was acting as a proxy and received an invalid response from the upstream server.")
-		}).responder();
+			ui::http_error(StatusCode::BAD_GATEWAY, "502 Bad Gateway", "The server was acting as a proxy and received an invalid response from the upstream server.")
+		}).responder()
 }
 
 // Trim the port from an IPv4 address, IPv6 address, or domain:port.
-fn trim_port<'a>(path: &'a str) -> &'a str {
-	if path.contains("[") && path.contains("]") {
+fn trim_port(path: &str) -> &str {
+	if path.contains('[') && path.contains(']') {
 		match path.rfind("]:") {
-			Some(i) => return &path[..i+1],
-			None => return path,
-		}
+			Some(i) => &path[..=i],
+			None => path,
+		};
 	}
 
-	match path.rfind(":") {
-		Some(i) => return &path[..i],
-		None => return path,
+	match path.rfind(':') {
+		Some(i) => &path[..i],
+		None => path,
 	}
 }
 
 // Trim the host from an IPv4 address, IPv6 address, or domain:port.
-fn trim_host<'a>(path: &'a str) -> &'a str {
-	if path.contains("[") && path.contains("]") {
+fn trim_host(path: &str) -> &str {
+	if path.contains('[') && path.contains(']') {
 		match path.rfind("]:") {
-			Some(i) => return &path[i+1..],
-			None => return "",
-		}
+			Some(i) => &path[i+1..],
+			None => "",
+		};
 	}
 
-	match path.rfind(":") {
-		Some(i) => return &path[i..],
-		None => return "",
+	match path.rfind(':') {
+		Some(i) => &path[i..],
+		None => "",
 	}
 }
 
 // Trim a substring (prefix) from the beginning of a string.
 fn trim_prefix<'a>(prefix: &'a str, root: &'a str) -> &'a str {
 	match root.find(prefix) {
-		Some(i) => return &root[i+prefix.len()..],
-		None => return root,
+		Some(i) => &root[i+prefix.len()..],
+		None => root,
 	}
 }
 
 // Trim a substring (suffix) from the end of a string.
 fn trim_suffix<'a>(suffix: &'a str, root: &'a str) -> &'a str {
 	match root.rfind(suffix) {
-		Some(i) => return &root[..i],
-		None => return root,
+		Some(i) => &root[..i],
+		None => root,
 	}
 }
 
 // Use regex to trim a string.
 fn trim_regex(regex: &str, root: &str) -> String {
-	let r = Regex::new(regex).unwrap_or(Regex::new("$x").unwrap());
-	return r.replace_all(&root, NoExpand("")).to_string();
+	let r = Regex::new(regex).unwrap_or_else(|_| Regex::new("$x").unwrap());
+	r.replace_all(&root, NoExpand("")).to_string()
 }
 
 // Open both a file, and the file's metadata.
 fn open_meta(path: &str) -> Result<(fs::File, fs::Metadata), Error> {
 	let f = File::open(path)?;
 	let m =  f.metadata()?;
-	return Ok((f, m));
+	Ok((f, m))
 }
 
 // Do a HTTP permanent redirect.
 fn redir(path: &str) -> Box<Future<Item=HttpResponse, Error=Error>> {
-	return result(Ok(
+	result(Ok(
 		HttpResponse::Ok()
 			.status(StatusCode::PERMANENT_REDIRECT)
 			.content_encoding(ContentEncoding::Auto)
@@ -247,7 +226,7 @@ fn redir(path: &str) -> Box<Future<Item=HttpResponse, Error=Error>> {
 			.header(header::SERVER, "KatWebX")
 			.content_type("text/html; charset=utf-8")
 			.body(["<a href='", path, "'>If this redirect does not work, click here</a>"].concat())))
-			.responder();
+			.responder()
 }
 
 // Return a MIME type based on file extension.
@@ -278,25 +257,25 @@ fn get_mime(path: &str) -> String {
 		return [&mime, "; charset=utf-8"].concat();
 	}
 
-	return mime
+	mime
 }
 
 // HTTP(S) request handling.
-fn index(_req: &HttpRequest) -> Box<Future<Item=HttpResponse, Error=Error>> {
-	let conn_info = _req.connection_info();
+fn index(req: &HttpRequest) -> Box<Future<Item=HttpResponse, Error=Error>> {
+	let conn_info = req.connection_info();
 
 	if conf.hsts && conn_info.scheme() == "http" {
 		let host = trim_port(conn_info.host());
 		let tls_host = conf.tls_addr.to_owned();
 		if trim_host(&tls_host) == ":443" {
-			return redir(&["https://", &host, _req.path()].concat());
+			return redir(&["https://", &host, req.path()].concat());
 		}
-		return redir(&["https://", &host, trim_host(&tls_host), _req.path()].concat());
+		return redir(&["https://", &host, trim_host(&tls_host), req.path()].concat());
 	}
 
 	let blankhead = &HeaderValue::from_static("");
-	let (path, host, fp) = handle_path(_req.path(), conn_info.host(), _req.headers().get(header::AUTHORIZATION).unwrap_or(blankhead).to_str().unwrap_or(""), conf.clone());
-	//println!("{:?}", [&trim_port(conn_info.host().to_owned()), _req.path()].concat());
+	let (path, host, fp) = handle_path(req.path(), conn_info.host(), req.headers().get(header::AUTHORIZATION).unwrap_or(blankhead).to_str().unwrap_or(""), &conf);
+	//println!("{:?}", [&trim_port(conn_info.host().to_owned()), req.path()].concat());
 
 	if host == "redir" {
 		if path == "unauth" {
@@ -306,10 +285,10 @@ fn index(_req: &HttpRequest) -> Box<Future<Item=HttpResponse, Error=Error>> {
 	}
 
 	if host == "proxy" {
-		return proxy_request(&path, _req.method().to_owned(), _req.headers(), _req.payload(), conn_info.remote().unwrap_or("127.0.0.1"), conf.stream_timeout)
+		return proxy_request(&path, req.method().to_owned(), req.headers(), req.payload(), conn_info.remote().unwrap_or("127.0.0.1"), conf.stream_timeout)
 	}
 
-	if _req.method() != Method::GET && _req.method() != Method::HEAD {
+	if req.method() != Method::GET && req.method() != Method::HEAD {
 		return ui::http_error(StatusCode::METHOD_NOT_ALLOWED, "405 Method Not Allowed", "Only GET and HEAD methods are supported.")
 	}
 
@@ -322,43 +301,35 @@ fn index(_req: &HttpRequest) -> Box<Future<Item=HttpResponse, Error=Error>> {
 	let mim = trim_suffix("; charset=utf-8", &mime);
 
 	// If the client accepts a brotli compressed response, then modify full_path to send one.
-	let ce = _req.headers().get(header::ACCEPT_ENCODING).unwrap_or(blankhead).to_str().unwrap_or("");
+	let ce = req.headers().get(header::ACCEPT_ENCODING).unwrap_or(blankhead).to_str().unwrap_or("");
 	if ce.contains("br") {
 		if conf.compress_files {
-			match stream::get_compressed_file(&&*full_path, mim) {
-				Ok(path) => full_path = path,
-				Err(_) => (),
-			}
-		} else {
-			if Path::new(&[&full_path, ".br"].concat()).exists() {
-				full_path = [&full_path, ".br"].concat()
-			}
+			if let Ok(path) = stream::get_compressed_file(&&*full_path, mim) {full_path = path}
+		} else if Path::new(&[&full_path, ".br"].concat()).exists() {
+			full_path = [&full_path, ".br"].concat()
 		}
 	}
 
 	// Open the file specified in full_path. If the file is not present, serve either a directory listing or an error.
 	let (f, finfo);
-	match open_meta(&full_path) {
-		Ok((fi, m)) => {f = fi; finfo = m},
-		Err(_) => {
-			if path.ends_with("/index.html") {
-				return ui::dir_listing(&[&*host, _req.path()].concat(), &host)
-			}
-
-			return ui::http_error(StatusCode::NOT_FOUND, "404 Not Found", &["The resource ", _req.path(), " could not be found."].concat());
+	if let Ok((fi, m)) = open_meta(&full_path) {f = fi; finfo = m} else {
+		if path.ends_with("/index.html") {
+			return ui::dir_listing(&[&*host, req.path()].concat(), &host)
 		}
+
+		return ui::http_error(StatusCode::NOT_FOUND, "404 Not Found", &["The resource ", req.path(), " could not be found."].concat());
 	}
 
 	if finfo.is_dir() {
-		return redir(&[_req.path(), "/"].concat());
+		return redir(&[req.path(), "/"].concat());
 	}
 
 	// Parse a ranges header if it is present, and then turn a File into a stream.
-	let (length, offset) = stream::calculate_ranges(&_req.drop_state(), finfo.len());
+	let (length, offset) = stream::calculate_ranges(&req.drop_state(), finfo.len());
 	let reader = stream::ChunkedReadFile {
-		offset: offset,
+		offset,
 		size: length,
-		cpu_pool: _req.cpu_pool().clone(),
+		cpu_pool: req.cpu_pool().clone(),
 		file: Some(f),
 		fut: None,
 		counter: 0,
@@ -437,7 +408,7 @@ fn main() {
 		App::new()
 			.default_resource(|r| r.f(index))
 	})
-		.backlog(8192).maxconn(100000).maxconnrate(4096)
+		.backlog(8192).maxconn(100_000).maxconnrate(4096)
 		.keep_alive(conf.stream_timeout as usize)
 		.bind_with(&conf.tls_addr, move || acceptor.clone())
 		.unwrap_or_else(|_err| {

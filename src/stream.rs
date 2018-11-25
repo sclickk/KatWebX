@@ -1,5 +1,6 @@
 // Mostly copied from actix-web. Actix Copyright (c) 2017 Nikolay Kim
 // Original source: https://github.com/actix/actix-web/blob/v0.7.8/src/fs.rs
+#![cfg_attr(feature = "cargo-clippy", allow(pedantic))]
 extern crate lazy_static;
 extern crate actix_web;
 extern crate futures;
@@ -21,16 +22,14 @@ pub fn get_compressed_file(path: &str, mime: &str) -> Result<String, Error> {
 		return Ok([path, ".br"].concat())
 	}
 
-	if Path::new(&path).exists() && !Path::new(&[&path, ".br"].concat()).exists() {
-		if gztypes.binary_search(&&*mime).is_ok() {
-			let mut fileold = File::open(path)?;
-			let mut filenew = File::create(&[path, ".br"].concat())?;
-			let _ = BrotliCompress(&mut fileold, &mut filenew, &BrotliEncoderInitParams())?;
-			return Ok([path, ".br"].concat())
-		}
+	if Path::new(&path).exists() && !Path::new(&[&path, ".br"].concat()).exists() && gztypes.binary_search(&&*mime).is_ok() {
+		let mut fileold = File::open(path)?;
+		let mut filenew = File::create(&[path, ".br"].concat())?;
+		let _ = BrotliCompress(&mut fileold, &mut filenew, &BrotliEncoderInitParams())?;
+		return Ok([path, ".br"].concat())
 	}
 
-	return Ok(path.to_string());
+	Ok(path.to_string())
 }
 
 pub fn calculate_ranges(req: &HttpRequest, length: u64) -> (u64, u64) {
@@ -45,7 +44,7 @@ pub fn calculate_ranges(req: &HttpRequest, length: u64) -> (u64, u64) {
 			return (length, 0);
 		};
 	};
-	return (length, 0);
+	(length, 0)
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -58,7 +57,7 @@ static PREFIX: &'static str = "bytes=";
 const PREFIX_LEN: usize = 6;
 
 impl HttpRange {
-    pub fn parse(header: &str, size: u64) -> Result<Vec<HttpRange>, ()> {
+    pub fn parse(header: &str, size: u64) -> Result<Vec<Self>, ()> {
         if header.is_empty() {
             return Ok(Vec::new());
         }
@@ -69,7 +68,7 @@ impl HttpRange {
         let size_sig = size as i64;
         let mut no_overlap = false;
 
-        let all_ranges: Vec<Option<HttpRange>> = header[PREFIX_LEN..]
+        let all_ranges: Vec<Option<Self>> = header[PREFIX_LEN..]
             .split(',')
             .map(|x| x.trim())
             .filter(|x| !x.is_empty())
@@ -86,7 +85,7 @@ impl HttpRange {
                         length = size_sig;
                     }
 
-                    Ok(Some(HttpRange {
+                    Ok(Some(Self {
                         start: (size_sig - length) as u64,
                         length: length as u64,
                     }))
@@ -117,14 +116,14 @@ impl HttpRange {
                         end - start + 1
                     };
 
-                    Ok(Some(HttpRange {
+                    Ok(Some(Self {
                         start: start as u64,
                         length: length as u64,
                     }))
                 }
             }).collect::<Result<_, _>>()?;
 
-        let ranges: Vec<HttpRange> = all_ranges.into_iter().filter_map(|x| x).collect();
+        let ranges: Vec<Self> = all_ranges.into_iter().filter_map(|x| x).collect();
 
         if no_overlap && ranges.is_empty() {
             return Err(());

@@ -39,19 +39,16 @@ pub fn dir_listing(path: &str, trim: &str) -> Box<Future<Item=HttpResponse, Erro
 				return http_error(StatusCode::NOT_FOUND, "500 Internal Server Error", "An unexpected condition was encountered.")
 			}
 		}
-		match fstr.metadata() {
-			Ok(fmeta) => {
-				size = fmeta.len();
-				if fmeta.is_dir() {
-					icon = FOLDERSVG
-				} else {
-					icon = FILESVG
-				}
-			},
-			Err(_) => {
-				size = 0;
+		if let Ok(fmeta) = fstr.metadata() {
+			size = fmeta.len();
+			if fmeta.is_dir() {
+				icon = FOLDERSVG
+			} else {
 				icon = FILESVG
 			}
+		} else {
+			size = 0;
+			icon = FILESVG
 		}
 
 		let mut sizestr = "".to_owned();
@@ -67,17 +64,17 @@ pub fn dir_listing(path: &str, trim: &str) -> Box<Future<Item=HttpResponse, Erro
 
 	html = [html, "</table><span class=btmright>Powered by KatWebX</span>".to_owned()].concat();
 
-	return result(Ok(
+	result(Ok(
 		HttpResponse::Ok()
 			.content_encoding(ContentEncoding::Auto)
 			.header(header::SERVER, "KatWebX")
 			.content_type("text/html; charset=utf-8")
 			.body(html)))
-			.responder();
+			.responder()
 }
 
 pub fn http_error(status: StatusCode, header: &str, body: &str) -> Box<Future<Item=HttpResponse, Error=Error>> {
-	return result(Ok(
+	result(Ok(
 		HttpResponse::Ok()
 			.status(status)
 			.content_encoding(ContentEncoding::Auto)
@@ -87,5 +84,5 @@ pub fn http_error(status: StatusCode, header: &str, body: &str) -> Box<Future<It
 			.header(header::SERVER, "KatWebX")
 			.content_type("text/html; charset=utf-8")
 			.body([HEAD, "<title>", header, "</title><h1 class=err>", ERRSVG, &encode_minimal(header), "</h1><p>", &encode_minimal(body), "</p><span class=bottom>Powered by KatWebX</span>"].concat())))
-			.responder();
+			.responder()
 }

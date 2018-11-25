@@ -33,13 +33,12 @@ pub struct Config {
 
 impl Config {
 	// load_config loads a configuration from a string or file.
-	pub fn load_config(data: String, is_path: bool) -> Config {
-		let datar;
-		if is_path {
-			datar = fs::read_to_string(data.clone()).unwrap_or(DEFAULT_CONFIG.to_owned());
+	pub fn load_config(data: String, is_path: bool) -> Self {
+		let datar = if is_path {
+			fs::read_to_string(data.clone()).unwrap_or_else(|_| DEFAULT_CONFIG.to_owned())
 		} else {
-			datar = data.clone();
-		}
+			data.clone()
+		};
 
 		let confj = json::parse(&datar).unwrap_or_else(|_err| {
 			println!("[Fatal]: Unable to parse configuration!");
@@ -52,7 +51,7 @@ impl Config {
 			});
 		}
 
-		return Config {
+		Self {
 			caching_timeout: confj["cachingTimeout"].as_i64().unwrap_or(0),
 			stream_timeout: confj["streamTimeout"].as_u64().unwrap_or(20),
 			hsts: confj["hsts"].as_bool().unwrap_or(false),
@@ -67,7 +66,7 @@ impl Config {
 				_ => Vec::new(),
 			},
 			hiddenx: match &confj["hide"] {
-				json::JsonValue::Array(array) => parse_json_regex(array, "").unwrap_or(RegexSet::new(&["$x"]).unwrap()),
+				json::JsonValue::Array(array) => parse_json_regex(array, "").unwrap_or_else(|_| RegexSet::new(&["$x"]).unwrap()),
 				_ => RegexSet::new(&["$x"]).unwrap(),
 			},
 			lredir: match &confj["redir"] {
@@ -79,7 +78,7 @@ impl Config {
 				_ => Vec::new(),
 			},
 			redirx: match &confj["redir"] {
-				json::JsonValue::Array(array) => RegexSet::new(array_json_regex(array, "location").iter()).unwrap_or(RegexSet::new(&["$x"]).unwrap()),
+				json::JsonValue::Array(array) => RegexSet::new(array_json_regex(array, "location").iter()).unwrap_or_else(|_| RegexSet::new(&["$x"]).unwrap()),
 				_ => RegexSet::new(&["$x"]).unwrap(),
 			},
 			redirmap: match &confj["redir"] {
@@ -96,7 +95,7 @@ impl Config {
 				_ => Vec::new(),
 			},
 			proxyx: match &confj["proxy"] {
-				json::JsonValue::Array(array) => RegexSet::new(array_json_regex(array, "location").iter()).unwrap_or(RegexSet::new(&["$x"]).unwrap()),
+				json::JsonValue::Array(array) => RegexSet::new(array_json_regex(array, "location").iter()).unwrap_or_else(|_| RegexSet::new(&["$x"]).unwrap()),
 				_ => RegexSet::new(&["$x"]).unwrap(),
 			},
 			proxymap: match &confj["proxy"] {
@@ -109,7 +108,7 @@ impl Config {
 				_ => Vec::new(),
 			},
 			authx: match &confj["auth"] {
-				json::JsonValue::Array(array) => RegexSet::new(array_json_regex(array, "location").iter()).unwrap_or(RegexSet::new(&["$x"]).unwrap()),
+				json::JsonValue::Array(array) => RegexSet::new(array_json_regex(array, "location").iter()).unwrap_or_else(|_| RegexSet::new(&["$x"]).unwrap()),
 				_ => RegexSet::new(&["$x"]).unwrap(),
 			},
 			authmap: match &confj["auth"] {
@@ -120,12 +119,12 @@ impl Config {
 			compress_files: confj["advanced"]["compressFiles"].as_bool().unwrap_or(false),
 			http_addr: confj["advanced"]["httpAddr"].as_str().unwrap_or("[::]:80").to_owned(),
 			tls_addr: confj["advanced"]["tlsAddr"].as_str().unwrap_or("[::]:443").to_owned(),
-		};
+		}
 	}
 }
 
 // Turn a JSON array into a sorted Vec<String>.
-fn sort_json(array: &json::Array, attr: &str) -> Vec<String> {
+fn sort_json(array: &[json::JsonValue], attr: &str) -> Vec<String> {
 	let mut tmp = Vec::new();
 	for item in array {
 		if attr == "" {
@@ -135,38 +134,37 @@ fn sort_json(array: &json::Array, attr: &str) -> Vec<String> {
 		}
 	}
 	tmp.sort_unstable();
-	return tmp
+	tmp
 }
 
 // Turn a JSON array into a HashMap<String, String>.
-fn map_json(array: &json::Array, attr1: &str, attr2: &str) -> HashMap<String, String> {
+fn map_json(array: &[json::JsonValue], attr1: &str, attr2: &str) -> HashMap<String, String> {
 	let mut tmp = HashMap::new();
 	for item in array {
 		tmp.insert(item[attr1].as_str().unwrap_or("").to_owned(), item[attr2].as_str().unwrap_or("").to_owned());
 	}
-	return tmp
+	tmp
 }
 
 // Turn a JSON array into a Vec<String>, only adding items which contain regex.
 // All regex strings must start with r#, so that the program knows they are regex. The r# will be trimmed from the string before the regex is parsed.
-fn array_json_regex(array: &json::Array, attr: &str) -> Vec<String> {
+fn array_json_regex(array: &[json::JsonValue], attr: &str) -> Vec<String> {
 	let mut tmp = Vec::new();
 	for item in array {
-		let itemt;
-		if attr == "" {
-			itemt = item.as_str().unwrap_or("").to_owned();
+		let itemt = if attr == "" {
+			item.as_str().unwrap_or("").to_owned()
 		} else {
-		 	itemt = item[attr].as_str().unwrap_or("").to_owned();
-		}
+		 	item[attr].as_str().unwrap_or("").to_owned()
+		};
 		if itemt.starts_with("r#") {
 			tmp.push(itemt[2..].to_owned())
 		}
 	}
 	tmp.sort_unstable();
-	return tmp
+	tmp
 }
 
 // Turn a JSON array into parsed regex.
-fn parse_json_regex(array: &json::Array, attr: &str) -> Result<RegexSet, regex::Error> {
-	return RegexSet::new(&array_json_regex(array, attr));
+fn parse_json_regex(array: &[json::JsonValue], attr: &str) -> Result<RegexSet, regex::Error> {
+	RegexSet::new(&array_json_regex(array, attr))
 }
