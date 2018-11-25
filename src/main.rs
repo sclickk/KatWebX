@@ -161,8 +161,8 @@ fn proxy_request(path: &str, method: Method, headers: &HeaderMap, body: Payload,
 fn trim_port(path: &str) -> &str {
 	if path.contains('[') && path.contains(']') {
 		match path.rfind("]:") {
-			Some(i) => &path[..=i],
-			None => path,
+			Some(i) => return &path[..=i],
+			None => return path,
 		};
 	}
 
@@ -176,8 +176,8 @@ fn trim_port(path: &str) -> &str {
 fn trim_host(path: &str) -> &str {
 	if path.contains('[') && path.contains(']') {
 		match path.rfind("]:") {
-			Some(i) => &path[i+1..],
-			None => "",
+			Some(i) => return &path[i+1..],
+			None => return "",
 		};
 	}
 
@@ -470,33 +470,35 @@ mod tests {
 	}
 	#[test]
 	fn test_handle_path_base() {
-		assert_eq!(handle_path("/index.html", "localhost", "", default_conf()), ("./".to_owned(), "redir".to_owned(), None));
-		assert_eq!(handle_path("/test/..", "localhost", "", default_conf()), ("..".to_owned(), "redir".to_owned(), None));
+		let conf = default_conf();
+		assert_eq!(handle_path("/index.html", "localhost", "", &conf), ("./".to_owned(), "redir".to_owned(), None));
+		assert_eq!(handle_path("/test/..", "localhost", "", &conf), ("..".to_owned(), "redir".to_owned(), None));
 
-		assert_eq!(handle_path("/", "H", "", default_conf()), ("/index.html".to_owned(), "html".to_owned(), Some("html/index.html".to_owned())));
-		assert_eq!(handle_path("/", "...", "", default_conf()), ("/index.html".to_owned(), "html".to_owned(), Some("html/index.html".to_owned())));
-		assert_eq!(handle_path("/", "/home", "", default_conf()), ("/index.html".to_owned(), "html".to_owned(), Some("html/index.html".to_owned())));
-		assert_eq!(handle_path("/", "C:\\", "", default_conf()), ("/index.html".to_owned(), "html".to_owned(), Some("html/index.html".to_owned())));
+		assert_eq!(handle_path("/", "H", "", &conf), ("/index.html".to_owned(), "html".to_owned(), Some("html/index.html".to_owned())));
+		assert_eq!(handle_path("/", "...", "", &conf), ("/index.html".to_owned(), "html".to_owned(), Some("html/index.html".to_owned())));
+		assert_eq!(handle_path("/", "/home", "", &conf), ("/index.html".to_owned(), "html".to_owned(), Some("html/index.html".to_owned())));
+		assert_eq!(handle_path("/", "C:\\", "", &conf), ("/index.html".to_owned(), "html".to_owned(), Some("html/index.html".to_owned())));
 
-		assert_eq!(handle_path("/", "ssl", "", default_conf()), ("/index.html".to_owned(), "html".to_owned(), Some("html/index.html".to_owned())));
-		assert_eq!(handle_path("/", "nonexistenthost", "", default_conf()), ("/index.html".to_owned(), "html".to_owned(), Some("html/index.html".to_owned())));
+		assert_eq!(handle_path("/", "ssl", "", &conf), ("/index.html".to_owned(), "html".to_owned(), Some("html/index.html".to_owned())));
+		assert_eq!(handle_path("/", "nonexistenthost", "", &conf), ("/index.html".to_owned(), "html".to_owned(), Some("html/index.html".to_owned())));
 	}
 	#[test]
 	fn test_handle_path_routing() {
-		assert_eq!(handle_path("/redir", "localhost", "", default_conf()), ("https://kittyhacker101.tk".to_owned(), "redir".to_owned(), None));
-		assert_eq!(handle_path("/redir2a", "localhost", "", default_conf()), ("https://google.com".to_owned(), "redir".to_owned(), None));
+		let conf = default_conf();
+		assert_eq!(handle_path("/redir", "localhost", "", &conf), ("https://kittyhacker101.tk".to_owned(), "redir".to_owned(), None));
+		assert_eq!(handle_path("/redir2a", "localhost", "", &conf), ("https://google.com".to_owned(), "redir".to_owned(), None));
 
-		assert_eq!(handle_path("/links.html", "proxy.local", "", default_conf()), ("https://kittyhacker101.tk/links.html".to_owned(), "proxy".to_owned(), None));
-		assert_eq!(handle_path("/proxy0/links.html", "localhost", "", default_conf()), ("https://kittyhacker101.tk/links.html".to_owned(), "proxy".to_owned(), None));
+		assert_eq!(handle_path("/links.html", "proxy.local", "", &conf), ("https://kittyhacker101.tk/links.html".to_owned(), "proxy".to_owned(), None));
+		assert_eq!(handle_path("/proxy0/links.html", "localhost", "", &conf), ("https://kittyhacker101.tk/links.html".to_owned(), "proxy".to_owned(), None));
 
-		assert_eq!(handle_path("/", "src", "", default_conf()), ("/index.html".to_owned(), "html".to_owned(), Some("html/index.html".to_owned())));
-		assert_eq!(handle_path("/", "target", "", default_conf()), ("/index.html".to_owned(), "html".to_owned(), Some("html/index.html".to_owned())));
-		assert_eq!(handle_path("/", "html", "", default_conf()), ("/index.html".to_owned(), "html".to_owned(), Some("html/index.html".to_owned())));
+		assert_eq!(handle_path("/", "src", "", &conf), ("/index.html".to_owned(), "html".to_owned(), Some("html/index.html".to_owned())));
+		assert_eq!(handle_path("/", "target", "", &conf), ("/index.html".to_owned(), "html".to_owned(), Some("html/index.html".to_owned())));
+		assert_eq!(handle_path("/", "html", "", &conf), ("/index.html".to_owned(), "html".to_owned(), Some("html/index.html".to_owned())));
 
-		assert_eq!(handle_path("/", "html", "", default_conf()), ("/index.html".to_owned(), "html".to_owned(), Some("html/index.html".to_owned())));
+		assert_eq!(handle_path("/", "html", "", &conf), ("/index.html".to_owned(), "html".to_owned(), Some("html/index.html".to_owned())));
 
-		assert_eq!(handle_path("/demopass/", "localhost", "", default_conf()), ("unauth".to_owned(), "redir".to_owned(), None));
-		assert_eq!(handle_path("/demopass/", "localhost", "aW5jb3JyZWN0OmxvZ2lu", default_conf()), ("unauth".to_owned(), "redir".to_owned(), None));
-		assert_eq!(handle_path("/demopass/", "localhost", "YWRtaW46cGFzc3dk", default_conf()), ("/demopass/index.html".to_owned(), "html".to_owned(), Some("html/demopass/index.html".to_owned())));
+		assert_eq!(handle_path("/demopass/", "localhost", "", &conf), ("unauth".to_owned(), "redir".to_owned(), None));
+		assert_eq!(handle_path("/demopass/", "localhost", "aW5jb3JyZWN0OmxvZ2lu", &conf), ("unauth".to_owned(), "redir".to_owned(), None));
+		assert_eq!(handle_path("/demopass/", "localhost", "YWRtaW46cGFzc3dk", &conf), ("/demopass/index.html".to_owned(), "html".to_owned(), Some("html/demopass/index.html".to_owned())));
 	}
 }
