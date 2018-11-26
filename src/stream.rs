@@ -6,6 +6,7 @@ extern crate actix_web;
 extern crate futures;
 extern crate futures_cpupool;
 extern crate brotli;
+extern crate bytes;
 
 use futures::{Async, Future, Poll, Stream};
 use bytes::Bytes;
@@ -22,7 +23,7 @@ pub fn get_compressed_file(path: &str, mime: &str) -> Result<String, Error> {
 		return Ok([path, ".br"].concat())
 	}
 
-	if Path::new(&path).exists() && !Path::new(&[&path, ".br"].concat()).exists() && gztypes.binary_search(&&*mime).is_ok() {
+	if Path::new(&path).exists() && !Path::new(&[path, ".br"].concat()).exists() && gztypes.binary_search(&&*mime).is_ok() {
 		let mut fileold = File::open(path)?;
 		let mut filenew = File::create(&[path, ".br"].concat())?;
 		let _ = BrotliCompress(&mut fileold, &mut filenew, &BrotliEncoderInitParams())?;
@@ -133,6 +134,13 @@ impl HttpRange {
     }
 }
 
+pub fn read_file(mut f: File) -> Result<Bytes, Error> {
+	let mut buffer = Vec::new();
+	f.read_to_end(&mut buffer)?;
+
+	Ok(Bytes::from(buffer))
+}
+
 pub struct ChunkedReadFile {
     pub size: u64,
     pub offset: u64,
@@ -141,7 +149,8 @@ pub struct ChunkedReadFile {
     pub fut: Option<futures_cpupool::CpuFuture<(File, Bytes), io::Error>>,
     pub counter: u64,
 }
- impl Stream for ChunkedReadFile {
+
+impl Stream for ChunkedReadFile {
     type Item = Bytes;
     type Error = actix_web::Error;
     fn poll(&mut self) -> Poll<Option<Bytes>, actix_web::Error> {

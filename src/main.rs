@@ -1,8 +1,14 @@
-#![cfg_attr(feature = "cargo-clippy", warn(pedantic))]
+#![cfg_attr(feature = "cargo-clippy", deny(nursery))]
+#![cfg_attr(feature = "cargo-clippy", deny(pedantic))]
 #![cfg_attr(feature = "cargo-clippy", deny(cargo))]
 #![cfg_attr(feature = "cargo-clippy", deny(all))]
+// It's not possible to fix this.
 #![cfg_attr(feature = "cargo-clippy", allow(multiple_crate_versions))]
+// There's no easy way to fix this over-complicating the code.
 #![cfg_attr(feature = "cargo-clippy", allow(borrow_interior_mutable_const))]
+// These two are currently non-issues, and can be ignored.
+#![cfg_attr(feature = "cargo-clippy", allow(cast_possible_truncation))]
+#![cfg_attr(feature = "cargo-clippy", allow(cast_precision_loss))]
 
 #[macro_use]
 extern crate lazy_static;
@@ -15,13 +21,13 @@ extern crate mime_guess;
 extern crate mime_sniffer;
 extern crate json;
 extern crate regex;
-extern crate bytes;
 extern crate base64;
+extern crate bytes;
 mod stream;
 mod ui;
 mod config;
 use config::Config;
-use actix_web::{actix::Actor, server, server::{RustlsAcceptor, ServerFlags}, client, client::ClientConnector, App, http::{header, header::{HeaderValue, HeaderMap}, Method, ContentEncoding, StatusCode}, HttpRequest, HttpResponse, HttpMessage, AsyncResponder, Error, dev::Payload};
+use actix_web::{actix::Actor, server, server::{RustlsAcceptor, ServerFlags}, client, client::ClientConnector, App, Body, Binary, http::{header, header::{HeaderValue, HeaderMap}, Method, ContentEncoding, StatusCode}, HttpRequest, HttpResponse, HttpMessage, AsyncResponder, Error, dev::Payload};
 use futures::future::{Future, result};
 use std::{process, cmp, fs, string::String, fs::File, path::Path, io::Read, io::BufReader, time::Duration};
 use base64::decode;
@@ -64,7 +70,7 @@ fn handle_path(path: &str, host: &str, auth: &str, c: &Config) -> (String, Strin
 		_ if c.redirx.is_match(fp) => {
 			let mut r = "$x";
 			if let Some(regx) = c.redirx.matches(fp).iter().next() {r = &c.lredirx[regx]}
-			if let Some(link) = conf.redirmap.get(&["r#", r].concat()) {return ([link.to_owned(), trim_regex(r, &fp)].concat(), "redir".to_owned(), None)}
+			if let Some(link) = conf.redirmap.get(&["r#", r].concat()) {return ([link.to_owned(), trim_regex(r, fp)].concat(), "redir".to_owned(), None)}
 		},
 		_ if c.lredir.binary_search(fp).is_ok() => {
 			if let Some(link) = c.redirmap.get(fp) {return (link.to_owned(), "redir".to_owned(), None)}
@@ -72,7 +78,7 @@ fn handle_path(path: &str, host: &str, auth: &str, c: &Config) -> (String, Strin
 		_ if c.proxyx.is_match(fp) => {
 			let mut r = "$x";
 			if let Some(regx) = c.proxyx.matches(fp).iter().next() {r = &c.lproxyx[regx]}
-			if let Some(link) = c.proxymap.get(&["r#", r].concat()) {return ([link.to_owned(), trim_regex(r, &fp)].concat(), "proxy".to_owned(), None)}
+			if let Some(link) = c.proxymap.get(&["r#", r].concat()) {return ([link.to_owned(), trim_regex(r, fp)].concat(), "proxy".to_owned(), None)}
 		},
 		_ if c.lproxy.binary_search(&hostn).is_ok() => {
 			if let Some(link) = c.proxymap.get(host) {return ([link, path].concat(), "proxy".to_owned(), None)}
@@ -206,7 +212,7 @@ fn trim_suffix<'a>(suffix: &'a str, root: &'a str) -> &'a str {
 // Use regex to trim a string.
 fn trim_regex(regex: &str, root: &str) -> String {
 	let r = Regex::new(regex).unwrap_or_else(|_| Regex::new("$x").unwrap());
-	r.replace_all(&root, NoExpand("")).to_string()
+	r.replace_all(root, NoExpand("")).to_string()
 }
 
 // Open both a file, and the file's metadata.
@@ -268,9 +274,9 @@ fn index(req: &HttpRequest) -> Box<Future<Item=HttpResponse, Error=Error>> {
 		let host = trim_port(conn_info.host());
 		let tls_host = conf.tls_addr.to_owned();
 		if trim_host(&tls_host) == ":443" {
-			return redir(&["https://", &host, req.path()].concat());
+			return redir(&["https://", host, req.path()].concat());
 		}
-		return redir(&["https://", &host, trim_host(&tls_host), req.path()].concat());
+		return redir(&["https://", host, trim_host(&tls_host), req.path()].concat());
 	}
 
 	let blankhead = &HeaderValue::from_static("");
@@ -304,7 +310,7 @@ fn index(req: &HttpRequest) -> Box<Future<Item=HttpResponse, Error=Error>> {
 	let ce = req.headers().get(header::ACCEPT_ENCODING).unwrap_or(blankhead).to_str().unwrap_or("");
 	if ce.contains("br") {
 		if conf.compress_files {
-			if let Ok(path) = stream::get_compressed_file(&&*full_path, mim) {full_path = path}
+			if let Ok(path) = stream::get_compressed_file(&*full_path, mim) {full_path = path}
 		} else if Path::new(&[&full_path, ".br"].concat()).exists() {
 			full_path = [&full_path, ".br"].concat()
 		}
@@ -326,13 +332,17 @@ fn index(req: &HttpRequest) -> Box<Future<Item=HttpResponse, Error=Error>> {
 
 	// Parse a ranges header if it is present, and then turn a File into a stream.
 	let (length, offset) = stream::calculate_ranges(&req.drop_state(), finfo.len());
-	let reader = stream::ChunkedReadFile {
-		offset,
-		size: length,
-		cpu_pool: req.cpu_pool().clone(),
-		file: Some(f),
-		fut: None,
-		counter: 0,
+	let body = if conf.streaming {
+		Body::Streaming(Box::new(stream::ChunkedReadFile {
+			offset,
+			size: length,
+			cpu_pool: req.cpu_pool().clone(),
+			file: Some(f),
+			fut: None,
+			counter: 0,
+		}))
+	} else {
+		Body::Binary(Binary::Bytes(stream::read_file(f).unwrap()))
 	};
 
 	// Craft a response.
@@ -340,7 +350,9 @@ fn index(req: &HttpRequest) -> Box<Future<Item=HttpResponse, Error=Error>> {
 	result(Ok(
 		HttpResponse::Ok()
 	        .content_type(&*mime)
-			.header(header::ACCEPT_RANGES, "bytes")
+			.if_true(conf.streaming, |builder| {
+				builder.header(header::ACCEPT_RANGES, "bytes");
+			})
 			.if_true(full_path.ends_with(".br"), |builder| {
 				builder.header(header::CONTENT_ENCODING, "br");
 				builder.content_encoding(ContentEncoding::Identity);
@@ -367,7 +379,7 @@ fn index(req: &HttpRequest) -> Box<Future<Item=HttpResponse, Error=Error>> {
 				builder.header(header::X_XSS_PROTECTION, "1; mode=block");
 			})
 			.header(header::SERVER, "KatWebX-Alpha")
-            .streaming(reader)))
+            .body(body)))
         	.responder()
 }
 
@@ -432,7 +444,7 @@ fn main() {
 mod tests {
 	use {config, handle_path, trim_port, trim_host, trim_prefix, trim_suffix};
 	fn default_conf() -> config::Config {
-		return config::Config::load_config(config::DEFAULT_CONFIG.to_owned(), false);
+		config::Config::load_config(config::DEFAULT_CONFIG.to_owned(), false)
 	}
 	#[test]
 	fn test_conf_defaults() {
