@@ -419,7 +419,7 @@ fn main() {
 		App::new()
 			.default_resource(|r| r.f(index))
 	})
-		.backlog(8192).maxconn(100_000).maxconnrate(4096)
+		.backlog(8192).maxconn(100_000).maxconnrate(8192)
 		.keep_alive(conf.stream_timeout as usize)
 		.bind_with(&conf.tls_addr, move || acceptor.clone())
 		.unwrap_or_else(|_err| {
