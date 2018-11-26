@@ -4,7 +4,7 @@
 #![cfg_attr(feature = "cargo-clippy", deny(all))]
 // It's not possible to fix this.
 #![cfg_attr(feature = "cargo-clippy", allow(multiple_crate_versions))]
-// There's no easy way to fix this over-complicating the code.
+// There's no easy way to fix this without over-complicating the code.
 #![cfg_attr(feature = "cargo-clippy", allow(borrow_interior_mutable_const))]
 // These two are currently non-issues, and can be ignored.
 #![cfg_attr(feature = "cargo-clippy", allow(cast_possible_truncation))]
@@ -332,7 +332,8 @@ fn index(req: &HttpRequest) -> Box<Future<Item=HttpResponse, Error=Error>> {
 
 	// Parse a ranges header if it is present, and then turn a File into a stream.
 	let (length, offset) = stream::calculate_ranges(&req.drop_state(), finfo.len());
-	let body = if conf.streaming {
+	let has_range = offset != 0 || length != finfo.len();
+	let body = if length > 65_536 || has_range {
 		Body::Streaming(Box::new(stream::ChunkedReadFile {
 			offset,
 			size: length,
@@ -350,9 +351,7 @@ fn index(req: &HttpRequest) -> Box<Future<Item=HttpResponse, Error=Error>> {
 	result(Ok(
 		HttpResponse::Ok()
 	        .content_type(&*mime)
-			.if_true(conf.streaming, |builder| {
-				builder.header(header::ACCEPT_RANGES, "bytes");
-			})
+			.header(header::ACCEPT_RANGES, "bytes")
 			.if_true(full_path.ends_with(".br"), |builder| {
 				builder.header(header::CONTENT_ENCODING, "br");
 				builder.content_encoding(ContentEncoding::Identity);
@@ -360,7 +359,7 @@ fn index(req: &HttpRequest) -> Box<Future<Item=HttpResponse, Error=Error>> {
 			.if_true(!full_path.ends_with(".br") && stream::gztypes.binary_search(&&*mime).is_ok(), |builder| {
 				builder.content_encoding(ContentEncoding::Auto);
 			})
-			.if_true(offset != 0, |builder| {
+			.if_true(has_range, |builder| {
 				builder.header(header::CONTENT_RANGE, ["bytes ", &offset.to_string(), "-", &(offset+length-1).to_string(), "/", &finfo.len().to_string()].concat());
 			})
 			.if_true(cache_int == 0, |builder| {
@@ -453,6 +452,8 @@ mod tests {
 		assert_eq!(conf.stream_timeout, 20);
 		assert_eq!(conf.hsts, false);
 		assert_eq!(conf.protect, true);
+		assert_eq!(conf.http_addr, "[::]:80".to_owned());
+		assert_eq!(conf.tls_addr, "[::]:443".to_owned());
 	}
 	#[test]
 	fn test_trim_port() {

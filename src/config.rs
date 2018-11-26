@@ -5,7 +5,7 @@ use std::{collections::HashMap, fs, process};
 use regex::RegexSet;
 
 // The default configuration for the server to use.
-pub const DEFAULT_CONFIG: &str = r#"{"cachingTimeout":4,"streamTimeout":20,"hsts":false,"proxy":[{"location":"proxy.local","host":"https://kittyhacker101.tk"},{"location":"r#localhost/proxy[0-9]","host":"https://kittyhacker101.tk"}],"redir":[{"location":"localhost/redir","dest":"https://kittyhacker101.tk"},{"location":"r#localhost/redir2.*","dest":"https://google.com"}],"auth":[{"location":"r#localhost/demopass.*","login":"admin:passwd"}],"hide":["src","r#tar.*"],"advanced":{"protect":true,"compressfiles":true,"streaming":true,"httpAddr":"[::]:80","tlsAddr":"[::]:443"}}"#;
+pub const DEFAULT_CONFIG: &str = r#"{"cachingTimeout":4,"streamTimeout":20,"hsts":false,"proxy":[{"location":"proxy.local","host":"https://kittyhacker101.tk"},{"location":"r#localhost/proxy[0-9]","host":"https://kittyhacker101.tk"}],"redir":[{"location":"localhost/redir","dest":"https://kittyhacker101.tk"},{"location":"r#localhost/redir2.*","dest":"https://google.com"}],"auth":[{"location":"r#localhost/demopass.*","login":"admin:passwd"}],"hide":["src","r#tar.*"],"advanced":{"protect":true,"compressfiles":true,"httpAddr":"[::]:80","tlsAddr":"[::]:443"}}"#;
 
 #[derive(Clone)]
 pub struct Config {
@@ -27,7 +27,6 @@ pub struct Config {
 	pub authmap: HashMap<String, String>,
 	pub protect: bool,
 	pub compress_files: bool,
-	pub streaming: bool,
 	pub http_addr: String,
 	pub tls_addr: String,
 }
@@ -118,7 +117,6 @@ impl Config {
 			},
 			protect: confj["advanced"]["protect"].as_bool().unwrap_or(false),
 			compress_files: confj["advanced"]["compressFiles"].as_bool().unwrap_or(false),
-			streaming: confj["advanced"]["streaming"].as_bool().unwrap_or(true),
 			http_addr: confj["advanced"]["httpAddr"].as_str().unwrap_or("[::]:80").to_owned(),
 			tls_addr: confj["advanced"]["tlsAddr"].as_str().unwrap_or("[::]:443").to_owned(),
 		}
