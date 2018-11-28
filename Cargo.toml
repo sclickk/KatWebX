@@ -1,5 +1,5 @@
 [package]
-name = "katweb"
+name = "katwebx"
 version = "0.1.0"
 license = "MIT"
 homepage = "https://github.com/kittyhacker101/KatWebX"
@@ -8,6 +8,7 @@ authors = ["kittyhacker101 <kittyhacker101@protonmail.com>"]
 [dependencies]
 json = "*"
 base64 = "*"
+chrono = "*"
 futures = "*"
 futures-cpupool = "*"
 bytes = "*"
@@ -22,5 +23,7 @@ brotli = "*"
 rustls = "*"
 actix = "*"
 actix-web = { version = "*", default-features = false, features = ["flate2-c", "rust-tls"] }
+
 [profile.release]
 lto = true
+panic = 'abort'
