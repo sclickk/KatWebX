@@ -23,16 +23,18 @@ extern crate json;
 extern crate regex;
 extern crate base64;
 extern crate bytes;
+extern crate chrono;
 mod stream;
 mod ui;
 mod config;
 use config::Config;
-use actix_web::{actix::Actor, server, server::{RustlsAcceptor, ServerFlags}, client, client::ClientConnector, App, Body, Binary, http::{header, header::{HeaderValue, HeaderMap}, Method, ContentEncoding, StatusCode}, HttpRequest, HttpResponse, HttpMessage, AsyncResponder, Error, dev::Payload};
+use actix_web::{actix::Actor, server, server::{RustlsAcceptor, ServerFlags}, client, client::ClientConnector, App, Body, Binary, http::{header, header::{HeaderValue, HeaderMap}, Method, ContentEncoding, StatusCode}, HttpRequest, HttpResponse, HttpMessage, AsyncResponder, Error, dev::{ConnectionInfo, Payload}};
 use futures::future::{Future, result};
 use std::{process, cmp, fs, string::String, fs::File, path::Path, io::Read, io::BufReader, time::Duration};
 use base64::decode;
 use mime_sniffer::MimeTypeSniffer;
 use regex::{Regex, NoExpand};
+use chrono::Local;
 use rustls::{NoClientAuth, ServerConfig, internal::pemfile::{certs, rsa_private_keys}};
 
 lazy_static! {
@@ -235,6 +237,47 @@ fn redir(path: &str) -> Box<Future<Item=HttpResponse, Error=Error>> {
 			.responder()
 }
 
+// Logs a HTTP request to the console.
+// TODO: Add HTTP auth support.
+fn log_data(format_type: &str, status: u16, head: &str, req: &HttpRequest, conn: &ConnectionInfo, length: Option<u64>) {
+	if format_type == "" || format_type == "none" {
+		return
+	}
+	let version = req.version();
+	let method = req.method();
+	let client_ip = trim_port(conn.remote().unwrap_or("127.0.0.1"));
+	let host = trim_port(conn.host());
+	let path = req.path();
+	let headers = req.headers();
+	let time = Local::now().format("%d/%b/%Y:%H:%M:%S %z");
+
+	let (lengthstr, mut referer, mut user_agent);
+	if let Some(l) = length {lengthstr = l.to_string()} else {lengthstr = "-".to_owned()}
+
+	if let Some(h) = headers.get(header::REFERER) {
+		referer=h.to_str().unwrap_or("-").to_owned()
+	} else {
+		referer = "-".to_owned()
+	}
+
+	if let Some(h) = headers.get(header::USER_AGENT) {
+		user_agent=h.to_str().unwrap_or("-").to_owned()
+	} else {
+		user_agent = "-".to_owned()
+	}
+
+	if referer != "-" {referer = ["\"", &referer, "\""].concat()}
+	if user_agent != "-" {user_agent = ["\"", &user_agent, "\""].concat()}
+	match format_type {
+		"combinedvhost" => println!("{} {} - - [{}] \"{:#?} {} {:#?}\" {} {} {} {}", host, client_ip, time, method, path, version, status, lengthstr, referer, user_agent),
+		"combined" => println!("{} - - [{}] \"{:#?} {} {:#?}\" {} {} {} {}", client_ip, time, method, path, version, status, lengthstr, referer, user_agent),
+		"commonvhost" => println!("{} {} - - [{}] \"{:#?} {} {:#?}\" {} {}", host, client_ip, time, method, path, version, status, lengthstr),
+		"common" => println!("{} - - [{}] \"{:#?} {} {:#?}\" {} {}", client_ip, time, method, path, version, status, lengthstr),
+		"simple" => println!("[{}][{}{}] : {}", head, host, path, client_ip),
+		_ => (),
+	}
+}
+
 // Return a MIME type based on file extension.
 // If the file extension is not known, attempt to guess the mime type.
 fn get_mime(path: &str) -> String {
@@ -273,6 +316,7 @@ fn index(req: &HttpRequest) -> Box<Future<Item=HttpResponse, Error=Error>> {
 	if conf.hsts && conn_info.scheme() == "http" {
 		let host = trim_port(conn_info.host());
 		let tls_host = conf.tls_addr.to_owned();
+		log_data(&conf.log_format, 301, "WebHSTS", req, &conn_info, None);
 		if trim_host(&tls_host) == ":443" {
 			return redir(&["https://", host, req.path()].concat());
 		}
@@ -281,20 +325,23 @@ fn index(req: &HttpRequest) -> Box<Future<Item=HttpResponse, Error=Error>> {
 
 	let blankhead = &HeaderValue::from_static("");
 	let (path, host, fp) = handle_path(req.path(), conn_info.host(), req.headers().get(header::AUTHORIZATION).unwrap_or(blankhead).to_str().unwrap_or(""), &conf);
-	//println!("{:?}", [&trim_port(conn_info.host().to_owned()), req.path()].concat());
 
 	if host == "redir" {
 		if path == "unauth" {
+			log_data(&conf.log_format, 401, "WebUnAuth", req, &conn_info, None);
 			return ui::http_error(StatusCode::UNAUTHORIZED, "401 Unauthorized", "Valid credentials are required to acccess this resource.")
 		}
+		log_data(&conf.log_format, 301, "WebRedir", req, &conn_info, None);
 		return redir(&path);
 	}
 
 	if host == "proxy" {
+		log_data(&conf.log_format, 200, "WebProxy", req, &conn_info, None);
 		return proxy_request(&path, req.method().to_owned(), req.headers(), req.payload(), conn_info.remote().unwrap_or("127.0.0.1"), conf.stream_timeout)
 	}
 
 	if req.method() != Method::GET && req.method() != Method::HEAD {
+		log_data(&conf.log_format, 405, "WebBadMethod", req, &conn_info, None);
 		return ui::http_error(StatusCode::METHOD_NOT_ALLOWED, "405 Method Not Allowed", "Only GET and HEAD methods are supported.")
 	}
 
@@ -320,9 +367,11 @@ fn index(req: &HttpRequest) -> Box<Future<Item=HttpResponse, Error=Error>> {
 	let (f, finfo);
 	if let Ok((fi, m)) = open_meta(&full_path) {f = fi; finfo = m} else {
 		if path.ends_with("/index.html") {
+			log_data(&conf.log_format, 200, "WebDir", req, &conn_info, None);
 			return ui::dir_listing(&[&*host, req.path()].concat(), &host)
 		}
 
+		log_data(&conf.log_format, 404, "WebNotFound", req, &conn_info, None);
 		return ui::http_error(StatusCode::NOT_FOUND, "404 Not Found", &["The resource ", req.path(), " could not be found."].concat());
 	}
 
@@ -345,6 +394,8 @@ fn index(req: &HttpRequest) -> Box<Future<Item=HttpResponse, Error=Error>> {
 	} else {
 		Body::Binary(Binary::Bytes(stream::read_file(f).unwrap()))
 	};
+
+	log_data(&conf.log_format, 200, "Web", req, &conn_info, Some(length-offset));
 
 	// Craft a response.
 	let cache_int = conf.caching_timeout;
