@@ -21,7 +21,7 @@ KatWebX is an early work in progress, and you will encounter bugs. **Do not use 
 - [x] HTTP/2 and HTTP/1.1 support
 - [x] High peformance TLS 1.3
 - [ ] SNI support
-- [ ] Advanced logging support
+- [x] Advanced logging support
 - [x] Material design error pages
 - [x] Material design file listing
 
