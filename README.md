@@ -4,6 +4,15 @@ An extremely fast static web-server and reverse proxy for the modern web.
 ## Important Info 
 KatWebX is an early work in progress, and you will encounter bugs. **Do not use KatWebX in production!** A lot of work is required before KatWebX will be ready for production use. If you need something which will is well tested and can be used in production, check out [KatWeb](https://github.com/kittyhacker101/KatWeb) instead.
 
+## Release Schedule
+Approximate dates for the release of KatWebX (and discontinuing of KatWeb) are listed below.
+ - Around December 2018 - KatWebX becomes feature complete, and begins testing in some production environments. 
+ - December 16, 2018 - KatWebX's first beta release.
+ - January 12, 2019 - KatWebX's first pre-release. During the time from pre-release to release, no new features will be added, and the configuration format will not be changed.
+ - Febuary 3, 2019 - KatWebX's first release.
+ - Febuary 17, 2019 - A tool is released to automatically migrate configuration from KatWeb to KatWebX. 
+ - June 13, 2019 - KatWeb is given EOL status, and is discontinued. 
+
 ## Current/Planned Features
 - [x] Flexible config parsing
 - [x] Server-side redirects
