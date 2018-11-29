@@ -27,6 +27,7 @@ pub struct Config {
 	pub authmap: HashMap<String, String>,
 	pub protect: bool,
 	pub compress_files: bool,
+	pub log_format: String,
 	pub http_addr: String,
 	pub tls_addr: String,
 }
@@ -117,6 +118,7 @@ impl Config {
 			},
 			protect: confj["advanced"]["protect"].as_bool().unwrap_or(false),
 			compress_files: confj["advanced"]["compressFiles"].as_bool().unwrap_or(false),
+			log_format: confj["advanced"]["logformat"].as_str().unwrap_or("").to_owned(),
 			http_addr: confj["advanced"]["httpAddr"].as_str().unwrap_or("[::]:80").to_owned(),
 			tls_addr: confj["advanced"]["tlsAddr"].as_str().unwrap_or("[::]:443").to_owned(),
 		}
