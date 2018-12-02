@@ -20,7 +20,7 @@ Approximate dates for the release of KatWebX (and discontinuing of KatWeb) are l
 - [x] Regex-based redirects
 - [x] Flexible config parsing
 - [x] Compressed reverse proxy
-- [ ] Websocket reverse proxy
+- [x] Websocket reverse proxy
 - [x] Regex-based reverse proxying
 - [x] Automatic proxy compression
 - [x] HTTP basic authentication
