@@ -22,7 +22,7 @@ regex = "*"
 brotli = "*"
 rustls = "*"
 actix = "*"
-actix-web = { version = "*", default-features = false, features = ["flate2-c", "rust-tls"] }
+actix-web = { version = "*", default-features = false, features = ["flate2-c", "session", "rust-tls"] }
 
 [profile.release]
 lto = true
