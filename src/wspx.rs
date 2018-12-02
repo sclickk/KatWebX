@@ -45,10 +45,7 @@ impl Handler<ClientCommand> for WsClient {
 
 impl StreamHandler<Message, ProtocolError> for WsClient {
     fn handle(&mut self, msg: Message, ctx: &mut Context<Self>) {
-        match msg {
-            Message::Text(txt) => {let _ = self.1.send(txt);},
-            _ => (),
-        }
+		if let Message::Text(txt) = msg {let _ = self.1.send(txt);}
     }
 
     fn finished(&mut self, ctx: &mut Context<Self>) {
@@ -71,12 +68,12 @@ impl Actor for WsProxy {
 }
 
 impl WsProxy {
-	pub fn new(path: String) -> Self {
+	pub fn new(path: &str) -> Self {
 		let (sender1, receiver1) = channel();
 		let (sender2, receiver2) = channel();
 
 		Arbiter::spawn(
-			Client::new(["ws", trim_prefix("http", &path)].concat())
+			Client::new(["ws", trim_prefix("http", path)].concat())
 				.connect()
 				.map_err(|e| {println!("{:?}", e)})
 				.map(|(reader, writer)| {
@@ -84,11 +81,10 @@ impl WsProxy {
 						WsClient::add_stream(reader, ctx);
 						WsClient(writer, sender2)
 					});
-					thread::spawn(move || loop {
+					thread::spawn(move || {
 						for cmd in receiver1.iter() {
 							addr.do_send(ClientCommand(cmd));
-						}
-						return;
+						};
 					});
 					()
 				}),

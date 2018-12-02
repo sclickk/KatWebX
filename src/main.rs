@@ -341,7 +341,7 @@ fn index(req: &HttpRequest) -> Box<Future<Item=HttpResponse, Error=Error>> {
 	if host == "proxy" {
 		log_data(&conf.log_format, 200, "WebProxy", req, &conn_info, None);
 		if req.headers().get(header::UPGRADE).unwrap_or(blankhead).to_str().unwrap_or("") == "websocket" {
-			return result(Ok(ws::start(req, WsProxy::new(path)).unwrap())).responder()
+			return result(ws::start(req, WsProxy::new(&path))).responder()
 		}
 		return proxy_request(&path, req.method().to_owned(), req.headers(), req.payload(), conn_info.remote().unwrap_or("127.0.0.1"), conf.stream_timeout)
 	}
