@@ -28,7 +28,10 @@ mod stream;
 mod ui;
 mod config;
 use config::Config;
-use actix_web::{actix::Actor, server, server::{RustlsAcceptor, ServerFlags}, client, client::ClientConnector, App, Body, Binary, http::{header, header::{HeaderValue, HeaderMap}, Method, ContentEncoding, StatusCode}, HttpRequest, HttpResponse, HttpMessage, AsyncResponder, Error, dev::{ConnectionInfo, Payload}};
+mod wspx;
+use wspx::WsProxy;
+use actix::{Message, System};
+use actix_web::{actix::Actor, server, server::{RustlsAcceptor, ServerFlags}, client, client::ClientConnector, App, Body, Binary, http::{header, header::{HeaderValue, HeaderMap}, Method, ContentEncoding, StatusCode}, HttpRequest, HttpResponse, HttpMessage, AsyncResponder, Error, dev::{ConnectionInfo, Payload}, ws};
 use futures::future::{Future, result};
 use std::{process, cmp, fs, string::String, fs::File, path::Path, io::Read, io::BufReader, time::Duration};
 use base64::decode;
@@ -104,7 +107,6 @@ fn handle_path(path: &str, host: &str, auth: &str, c: &Config) -> (String, Strin
 }
 
 // Reverse proxy a request, passing through any compression.
-// This cannot proxy websockets, because it removes the "Connection" HTTP header.
 // Hop-by-hop headers are removed, to allow connection reuse.
 fn proxy_request(path: &str, method: Method, headers: &HeaderMap, body: Payload, client_ip: &str, timeout: u64) -> Box<Future<Item=HttpResponse, Error=Error>> {
 	let re = client::ClientRequest::build()
@@ -117,12 +119,13 @@ fn proxy_request(path: &str, method: Method, headers: &HeaderMap, body: Payload,
 		.if_true(true, |req| {
 			for (key, value) in headers.iter() {
 				match key.as_str() {
-					"Connection" | "Proxy-Connection" | "Keep-Alive" | "Proxy-Authenticate" | "Proxy-Authorization" | "Te" | "Trailer" | "Transfer-Encoding" | "Upgrade" => (),
-					"X-Forwarded-For" => {
-						req.header("X-Forwarded-For", [value.to_str().unwrap_or("127.0.0.1"), ", ", client_ip].concat());
+					"connection" | "proxy-connection" | "host" | "keep-alive" | "proxy-authenticate" | "proxy-authorization" | "te" | "trailer" | "transfer-encoding" | "upgrade" => (),
+					"x-forwarded-for" => {
+						req.set_header("X-Forwarded-For", [value.to_str().unwrap_or("127.0.0.1"), ", ", client_ip].concat());
 						continue
 					},
 					_ => {
+						//println!("{:?} - {:?}", key, value);
 						req.header(key.to_owned(), value.to_owned());
 						continue
 					},
@@ -337,6 +340,9 @@ fn index(req: &HttpRequest) -> Box<Future<Item=HttpResponse, Error=Error>> {
 
 	if host == "proxy" {
 		log_data(&conf.log_format, 200, "WebProxy", req, &conn_info, None);
+		if req.headers().get(header::UPGRADE).unwrap_or(blankhead).to_str().unwrap_or("") == "websocket" {
+			return result(Ok(ws::start(req, WsProxy::new(path)).unwrap())).responder()
+		}
 		return proxy_request(&path, req.method().to_owned(), req.headers(), req.payload(), conn_info.remote().unwrap_or("127.0.0.1"), conf.stream_timeout)
 	}
 
@@ -436,7 +442,7 @@ fn index(req: &HttpRequest) -> Box<Future<Item=HttpResponse, Error=Error>> {
 // Load configuration, SSL certs, then attempt to start the program.
 fn main() {
 	println!("[Info]: Starting KatWebX...");
-	let sys = actix::System::new("katwebx");
+	let sys = System::new("katwebx");
 	lazy_static::initialize(&conf);
 
 	let mut tconfig = ServerConfig::new(NoClientAuth::new());
