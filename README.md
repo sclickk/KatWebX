@@ -2,7 +2,7 @@
 An extremely fast static web-server and reverse proxy for the modern web.
 
 ## Important Info 
-KatWebX is an early work in progress, and you will encounter bugs. **Do not use KatWebX in production!** A lot of work is required before KatWebX will be ready for production use. If you need something which will is well tested and can be used in production, check out [KatWeb](https://github.com/kittyhacker101/KatWeb) instead.
+KatWebX is a work in progress, and you will likely encounter bugs. **KatWebX is not well tested, production use is not recommended!**  If you need something which will is well tested and can be used in production, check out [KatWeb](https://github.com/kittyhacker101/KatWeb) instead.
 
 ## Release Schedule
 Approximate dates for the release of KatWebX (and discontinuing of KatWeb) are listed below.
