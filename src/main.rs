@@ -38,7 +38,7 @@ use base64::decode;
 use mime_sniffer::MimeTypeSniffer;
 use regex::{Regex, NoExpand};
 use chrono::Local;
-use rustls::{NoClientAuth, ServerConfig, internal::pemfile::{certs, rsa_private_keys}};
+use rustls::{NoClientAuth, ServerConfig, internal::pemfile::{certs, pkcs8_private_keys}};
 
 lazy_static! {
 	static ref conf: Config = Config::load_config("conf.json".to_owned(), true);
@@ -463,12 +463,18 @@ fn main() {
 		println!("[Fatal]: Unable to parse tls certificates!");
 		process::exit(1);
 	});
-	let mut keys = rsa_private_keys(key_file).unwrap_or_else(|_err| {
+	let mut keys = pkcs8_private_keys(key_file).unwrap_or_else(|_err| {
 		println!("[Fatal]: Unable to parse private key!");
 		process::exit(1);
 	});
+	if keys.is_empty() {
+		println!("[Fatal]: key.pem contains no valid pkcs8 keys!\n");
+		println!("You can convert your keyfile into pkcs8 using the command below.");
+		println!("openssl pkcs8 -topk8 -nocrypt -in oldkey.pem -out newkey.pem");
+		process::exit(1);
+	}
 	tconfig.set_single_cert(cert_chain, keys.remove(0)).unwrap_or_else(|_err| {
-		println!("[Fatal]: Unable to parse private key!");
+		println!("[Fatal]: Unable to parse certificate or private key!");
 		process::exit(1);
 	});
 	let acceptor = RustlsAcceptor::with_flags(
