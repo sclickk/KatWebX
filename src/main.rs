@@ -39,7 +39,7 @@ use base64::decode;
 use mime_sniffer::MimeTypeSniffer;
 use regex::{Regex, NoExpand};
 use chrono::Local;
-use rustls::{NoClientAuth, ServerConfig, internal::pemfile::{certs, pkcs8_private_keys}};
+use rustls::{ALL_CIPHERSUITES, NoClientAuth, ServerConfig, BulkAlgorithm, internal::pemfile::{certs, pkcs8_private_keys}};
 
 lazy_static! {
 	static ref conf: Config = Config::load_config("conf.json".to_owned(), true);
@@ -317,7 +317,7 @@ fn get_mime(path: &str) -> String {
 fn index(req: &HttpRequest) -> Box<Future<Item=HttpResponse, Error=Error>> {
 	let conn_info = req.connection_info();
 
-	if conf.hsts && conn_info.scheme() != "http" && !req.path().contains("//") {
+	if conf.hsts && req.uri().scheme_part().map(|s| s.as_str()) == Some("http") {
 		let host = trim_port(conn_info.host());
 		let tls_host = conf.tls_addr.to_owned();
 		log_data(&conf.log_format, 301, "WebHSTS", req, &conn_info, None);
@@ -454,6 +454,7 @@ fn main() {
 	lazy_static::initialize(&conf);
 
 	let mut tconfig = ServerConfig::new(NoClientAuth::new());
+	tconfig.ciphersuites = ALL_CIPHERSUITES.to_vec().into_iter().filter(|x| x.bulk != BulkAlgorithm::AES_128_GCM).collect();
 	let cert_file = &mut BufReader::new(File::open("ssl/cert.pem").unwrap_or_else(|_err| {
 		println!("[Fatal]: Unable to load ssl/cert.pem!");
 		process::exit(1);
