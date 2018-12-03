@@ -317,16 +317,7 @@ fn get_mime(path: &str) -> String {
 fn index(req: &HttpRequest) -> Box<Future<Item=HttpResponse, Error=Error>> {
 	let conn_info = req.connection_info();
 
-	// TODO: Figure out why actix-web gives inconsistent results, and report the issue.
-	// This is only meant as a temporary fix to the problem.
-	let mut is_secure = conn_info.scheme() != "http";
-	if !is_secure {
-		if let Some(addr) = req.peer_addr() {
-			is_secure = [":", &addr.port().to_string()].concat() == trim_host(&conf.tls_addr)
-		};
-	}
-
-	if conf.hsts && !is_secure {
+	if conf.hsts && conn_info.scheme() != "http" && !req.path().contains("//") {
 		let host = trim_port(conn_info.host());
 		let tls_host = conf.tls_addr.to_owned();
 		log_data(&conf.log_format, 301, "WebHSTS", req, &conn_info, None);
