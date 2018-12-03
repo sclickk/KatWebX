@@ -21,8 +21,8 @@ impl Actor for WsClient {
         self.hb(ctx)
     }
 
-    fn stopped(&mut self, _: &mut Context<Self>) {
-        System::current().stop();
+    fn stopped(&mut self, ctx: &mut Context<Self>) {
+        ctx.stop();
     }
 }
 

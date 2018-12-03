@@ -34,6 +34,7 @@ use actix::{Message, System};
 use actix_web::{actix::Actor, server, server::{RustlsAcceptor, ServerFlags}, client, client::ClientConnector, App, Body, Binary, http::{header, header::{HeaderValue, HeaderMap}, Method, ContentEncoding, StatusCode}, HttpRequest, HttpResponse, HttpMessage, AsyncResponder, Error, dev::{ConnectionInfo, Payload}, ws};
 use futures::future::{Future, result};
 use std::{process, cmp, fs, string::String, fs::File, path::Path, io::Read, io::BufReader, time::Duration};
+use bytes::Bytes;
 use base64::decode;
 use mime_sniffer::MimeTypeSniffer;
 use regex::{Regex, NoExpand};
@@ -316,7 +317,16 @@ fn get_mime(path: &str) -> String {
 fn index(req: &HttpRequest) -> Box<Future<Item=HttpResponse, Error=Error>> {
 	let conn_info = req.connection_info();
 
-	if conf.hsts && conn_info.scheme() == "http" {
+	// TODO: Figure out why actix-web gives inconsistent results, and report the issue.
+	// This is only meant as a temporary fix to the problem.
+	let mut is_secure = conn_info.scheme() != "http";
+	if !is_secure {
+		if let Some(addr) = req.peer_addr() {
+			is_secure = [":", &addr.port().to_string()].concat() == trim_host(&conf.tls_addr)
+		};
+	}
+
+	if conf.hsts && !is_secure {
 		let host = trim_port(conn_info.host());
 		let tls_host = conf.tls_addr.to_owned();
 		log_data(&conf.log_format, 301, "WebHSTS", req, &conn_info, None);
@@ -402,8 +412,10 @@ fn index(req: &HttpRequest) -> Box<Future<Item=HttpResponse, Error=Error>> {
 			fut: None,
 			counter: 0,
 		}))
+	} else if length == 0 {
+		Body::Binary(Binary::Bytes(Bytes::from("\n")))
 	} else {
-		Body::Binary(Binary::Bytes(stream::read_file(f).unwrap()))
+		Body::Binary(Binary::Bytes(stream::read_file(f).unwrap_or(Bytes::from(""))))
 	};
 
 	log_data(&conf.log_format, 200, "Web", req, &conn_info, Some(length-offset));
