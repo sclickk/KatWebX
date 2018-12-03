@@ -29,7 +29,7 @@ impl Actor for WsClient {
 impl WsClient {
     fn hb(&self, ctx: &mut Context<Self>) {
         ctx.run_later(Duration::new(1, 0), |act, ctx| {
-        	act.0.ping("");
+			act.0.ping("");
             act.hb(ctx);
         });
     }

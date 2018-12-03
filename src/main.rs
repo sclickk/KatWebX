@@ -339,6 +339,11 @@ fn index(req: &HttpRequest) -> Box<Future<Item=HttpResponse, Error=Error>> {
 	}
 
 	if host == "proxy" {
+		let mut path = path;
+		if !req.query_string().is_empty() {
+			path = path + "?" + req.query_string();
+		}
+
 		log_data(&conf.log_format, 200, "WebProxy", req, &conn_info, None);
 		if req.headers().get(header::UPGRADE).unwrap_or(blankhead).to_str().unwrap_or("") == "websocket" {
 			return result(ws::start(req, WsProxy::new(&path))).responder()
