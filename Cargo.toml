@@ -21,6 +21,7 @@ number_prefix = "*"
 regex = "*"
 brotli = "*"
 rustls = "*"
+webpki = "*"
 actix = "*"
 actix-web = { version = "*", default-features = false, features = ["flate2-c", "session", "rust-tls"] }
 
