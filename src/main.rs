@@ -30,16 +30,17 @@ mod config;
 use config::Config;
 mod wspx;
 use wspx::WsProxy;
+mod certs;
 use actix::{Message, System};
 use actix_web::{actix::Actor, server, server::{RustlsAcceptor, ServerFlags}, client, client::ClientConnector, App, Body, Binary, http::{header, header::{HeaderValue, HeaderMap}, Method, ContentEncoding, StatusCode}, HttpRequest, HttpResponse, HttpMessage, AsyncResponder, Error, dev::{ConnectionInfo, Payload}, ws};
 use futures::future::{Future, result};
-use std::{process, cmp, fs, string::String, fs::File, path::Path, io::Read, io::BufReader, time::Duration};
+use std::{process, cmp, fs, string::String, fs::File, path::Path, io::Read, time::Duration, sync::Arc, ffi::OsStr};
 use bytes::Bytes;
 use base64::decode;
 use mime_sniffer::MimeTypeSniffer;
 use regex::{Regex, NoExpand};
 use chrono::Local;
-use rustls::{ALL_CIPHERSUITES, NoClientAuth, ServerConfig, BulkAlgorithm, internal::pemfile::{certs, pkcs8_private_keys}};
+use rustls::{ALL_CIPHERSUITES, NoClientAuth, ServerConfig, BulkAlgorithm};
 
 lazy_static! {
 	static ref conf: Config = Config::load_config("conf.json".to_owned(), true);
@@ -278,6 +279,7 @@ fn log_data(format_type: &str, status: u16, head: &str, req: &HttpRequest, conn:
 		"commonvhost" => println!("{} {} - - [{}] \"{:#?} {} {:#?}\" {} {}", host, client_ip, time, method, path, version, status, lengthstr),
 		"common" => println!("{} - - [{}] \"{:#?} {} {:#?}\" {} {}", client_ip, time, method, path, version, status, lengthstr),
 		"simple" => println!("[{}][{}{}] : {}", head, host, path, client_ip),
+		"simpleplus" => println!("[{}][{} {}{} {:#?}][{}] : {}", head, method, host, path, version, user_agent, client_ip),
 		_ => (),
 	}
 }
@@ -442,7 +444,7 @@ fn index(req: &HttpRequest) -> Box<Future<Item=HttpResponse, Error=Error>> {
 				builder.header(header::CONTENT_SECURITY_POLICY, "default-src https: data: 'unsafe-inline' 'unsafe-eval' 'self'; frame-ancestors 'self'");
 				builder.header(header::X_XSS_PROTECTION, "1; mode=block");
 			})
-			.header(header::SERVER, "KatWebX-Alpha")
+			.header(header::SERVER, "KatWebX Beta")
             .body(body)))
         	.responder()
 }
@@ -455,32 +457,39 @@ fn main() {
 
 	let mut tconfig = ServerConfig::new(NoClientAuth::new());
 	tconfig.ciphersuites = ALL_CIPHERSUITES.to_vec().into_iter().filter(|x| x.bulk != BulkAlgorithm::AES_128_GCM).collect();
-	let cert_file = &mut BufReader::new(File::open("ssl/cert.pem").unwrap_or_else(|_err| {
-		println!("[Fatal]: Unable to load ssl/cert.pem!");
-		process::exit(1);
-	}));
-	let key_file = &mut BufReader::new(File::open("ssl/key.pem").unwrap_or_else(|_err| {
-		println!("[Fatal]: Unable to load ssl/key.pem!");
-		process::exit(1);
-	}));
-	let cert_chain = certs(cert_file).unwrap_or_else(|_err| {
-		println!("[Fatal]: Unable to parse tls certificates!");
+
+	let tls_folder = fs::read_dir("ssl".to_string()).unwrap_or_else(|_| {
+		println!("[Fatal]: Unable to open ssl/ folder!");
 		process::exit(1);
 	});
-	let mut keys = pkcs8_private_keys(key_file).unwrap_or_else(|_err| {
-		println!("[Fatal]: Unable to parse private key!");
-		process::exit(1);
-	});
-	if keys.is_empty() {
-		println!("[Fatal]: key.pem contains no valid pkcs8 keys!\n");
-		println!("You can convert your keyfile into pkcs8 using the command below.");
-		println!("openssl pkcs8 -topk8 -nocrypt -in oldkey.pem -out newkey.pem");
-		process::exit(1);
+
+	let mut cert_resolver = certs::ResolveCert::new("ssl/".to_owned());
+	for file in tls_folder {
+		let f;
+		if let Ok(fi) = file {
+			f = fi;
+		} else {
+			continue
+		}
+
+		if f.path().extension() != Some(OsStr::new("crt")) {
+			continue
+		}
+
+		let path = f.path();
+		let pathnoext;
+		if let Some(p) = path.file_stem() {
+			pathnoext = p.to_string_lossy()
+		} else {
+			continue
+		}
+
+		cert_resolver.load(pathnoext.to_string()).unwrap_or_else(|err| {
+			println!("[Warn]: {}", err)
+		});
 	}
-	tconfig.set_single_cert(cert_chain, keys.remove(0)).unwrap_or_else(|_err| {
-		println!("[Fatal]: Unable to parse certificate or private key!");
-		process::exit(1);
-	});
+
+	tconfig.cert_resolver = Arc::new(cert_resolver);
 	let acceptor = RustlsAcceptor::with_flags(
 		tconfig,
 		ServerFlags::HTTP1 | ServerFlags::HTTP2,
