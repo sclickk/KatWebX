@@ -408,7 +408,7 @@ fn index(req: &HttpRequest) -> Box<Future<Item=HttpResponse, Error=Error>> {
 	} else if length == 0 {
 		Body::Binary(Binary::Bytes(Bytes::from("\n")))
 	} else {
-		Body::Binary(Binary::Bytes(stream::read_file(f).unwrap_or(Bytes::from(""))))
+		Body::Binary(Binary::Bytes(stream::read_file(f).unwrap_or_else(|_| Bytes::from(""))))
 	};
 
 	log_data(&conf.log_format, 200, "Web", req, &conn_info, Some(length-offset));
