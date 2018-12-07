@@ -14,27 +14,27 @@ Approximate dates for the release of KatWebX (and discontinuing of KatWeb) are l
  - March 2, 2019 - All KatWeb users will be told to upgrade to KatWebX.
  - June 13, 2019 - KatWeb is given EOL status, and is discontinued. 
 
-## Current/Planned Features
-- [x] Flexible config parsing
-- [x] Server-side redirects
-- [x] Regex-based redirects
-- [x] Flexible config parsing
-- [x] Compressed reverse proxy
-- [x] Websocket reverse proxy
-- [x] Regex-based reverse proxying
-- [x] Automatic proxy compression
-- [x] HTTP basic authentication
-- [x] Regex-based auth
-- [x] Fast file serving
-- [x] Brotli file compression
-- [x] HSTS support
-- [x] HTTP/2 and HTTP/1.1 support
-- [x] High peformance TLS 1.3
-- [x] SNI support
-- [ ] OCSP stapling support
-- [x] Advanced logging support
-- [x] Material design error pages
-- [x] Material design file listing
+## Current Features
+- Flexible config parsing
+- Server-side redirects
+- Regex-based redirects
+- Flexible config parsing
+- Compressed reverse proxy
+- Websocket reverse proxy
+- Regex-based reverse proxying
+- Automatic proxy compression
+- HTTP basic authentication
+- Regex-based auth
+- Fast file serving
+- Brotli file compression
+- HSTS support
+- HTTP/2 and HTTP/1.1 support
+- High peformance TLS 1.3
+- SNI support
+- OCSP stapling support
+- Advanced logging support
+- Material design error pages
+- Material design file listing
 
 ## Possible Features
 - On-the-fly config reloading
