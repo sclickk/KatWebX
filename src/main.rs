@@ -550,6 +550,7 @@ mod tests {
 		assert_eq!(conf.stream_timeout, 20);
 		assert_eq!(conf.hsts, false);
 		assert_eq!(conf.protect, true);
+		assert_eq!(conf.log_format, "simple".to_owned());
 		assert_eq!(conf.http_addr, "[::]:80".to_owned());
 		assert_eq!(conf.tls_addr, "[::]:443".to_owned());
 	}

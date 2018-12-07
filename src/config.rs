@@ -5,7 +5,7 @@ use std::{collections::HashMap, fs, process};
 use regex::RegexSet;
 
 // The default configuration for the server to use.
-pub const DEFAULT_CONFIG: &str = r#"{"cachingTimeout":4,"streamTimeout":20,"hsts":false,"proxy":[{"location":"proxy.local","host":"https://kittyhacker101.tk"},{"location":"r#localhost/proxy[0-9]","host":"https://kittyhacker101.tk"}],"redir":[{"location":"localhost/redir","dest":"https://kittyhacker101.tk"},{"location":"r#localhost/redir2.*","dest":"https://google.com"}],"auth":[{"location":"r#localhost/demopass.*","login":"admin:passwd"}],"hide":["src","r#tar.*"],"advanced":{"protect":true,"compressfiles":true,"httpAddr":"[::]:80","tlsAddr":"[::]:443"}}"#;
+pub const DEFAULT_CONFIG: &str = r#"{"cachingTimeout":4,"streamTimeout":20,"hsts":false,"proxy":[{"location":"proxy.local","host":"https://kittyhacker101.tk"},{"location":"r#localhost/proxy[0-9]","host":"https://kittyhacker101.tk"}],"redir":[{"location":"localhost/redir","dest":"https://kittyhacker101.tk"},{"location":"r#localhost/redir2.*","dest":"https://google.com"}],"auth":[{"location":"r#localhost/demopass.*","login":"admin:passwd"}],"hide":["src","r#tar.*"],"advanced":{"protect":true,"compressfiles":true,"logformat":"simple","httpAddr":"[::]:80","tlsAddr":"[::]:443"}}"#;
 
 #[derive(Clone)]
 pub struct Config {
