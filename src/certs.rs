@@ -56,7 +56,7 @@ impl ResolveCert {
 
 		let mut bundle = CertifiedKey::new(cert_chain, Arc::new(key));
 
-		if let Ok(mut f) = File::open([pre, ".ocsp.pem"].concat()) {
+		if let Ok(mut f) = File::open([pre, ".ocsp"].concat()) {
 			let mut ocsp_file = Vec::new();
 			let _ = f.read_to_end(&mut ocsp_file);
 			if !ocsp_file.is_empty() {
