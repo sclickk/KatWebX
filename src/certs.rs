@@ -1,6 +1,6 @@
 extern crate rustls;
 extern crate webpki;
-use std::{collections, fs::File, io::BufReader, sync::Arc};
+use std::{collections, fs::File, io::{Read, BufReader}, sync::Arc};
 use rustls::{sign, ResolvesServerCert, SignatureScheme, sign::{any_supported_type, CertifiedKey}, internal::pemfile::{certs, pkcs8_private_keys}};
 
 #[derive(Clone)]
@@ -30,6 +30,8 @@ impl ResolveCert {
 			return Err(["Unable to open ", pre, ".pem!"].concat())
 		}
 
+
+
 		if let Ok(c) = certs(&mut cert_file) {
 			cert_chain = c;
 		} else {
@@ -52,7 +54,17 @@ impl ResolveCert {
 			return Err(["Unable to parse ", pre, ".pem!"].concat())
 		}
 
-		self.by_name.insert(name, CertifiedKey::new(cert_chain, Arc::new(key)));
+		let mut bundle = CertifiedKey::new(cert_chain, Arc::new(key));
+
+		if let Ok(mut f) = File::open([pre, ".ocsp.pem"].concat()) {
+			let mut ocsp_file = Vec::new();
+			let _ = f.read_to_end(&mut ocsp_file);
+			if !ocsp_file.is_empty() {
+				bundle.ocsp = Some(ocsp_file);
+			}
+		}
+
+		self.by_name.insert(name, bundle);
 		Ok(())
 	}
 }
