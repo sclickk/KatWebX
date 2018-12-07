@@ -75,7 +75,9 @@ impl ResolvesServerCert for ResolveCert {
             _sigschemes: &[SignatureScheme])
             -> Option<sign::CertifiedKey> {
         if let Some(name) = server_name {
-            self.by_name.get(name.into()).cloned()
+            self.by_name.get(name.into()).or_else(|| {
+				self.by_name.get("default")
+			}).cloned()
         } else {
 			self.by_name.get("default").cloned()
         }
