@@ -30,7 +30,7 @@ Approximate dates for the release of KatWebX (and discontinuing of KatWeb) are l
 - HTTP/2 and HTTP/1.1 support
 - High peformance TLS 1.3
 - SNI support
-- OCSP stapling support
+- OCSP response stapling
 - Advanced logging support
 - Material design error pages
 - Material design file listing
