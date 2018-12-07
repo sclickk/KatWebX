@@ -315,19 +315,28 @@ fn get_mime(path: &str) -> String {
 	mime
 }
 
-// HTTP(S) request handling.
+// HTTP request handling
+fn hsts(req: &HttpRequest) -> Box<Future<Item=HttpResponse, Error=Error>> {
+	if !conf.hsts {
+		return index(req);
+	}
+
+	let conn_info = req.connection_info();
+	let host = trim_port(conn_info.host());
+
+	let tls_addr = conf.tls_addr.to_owned();
+	let mut port = trim_host(&tls_addr);
+	if port == ":443" {
+		port = ""
+	}
+
+	log_data(&conf.log_format, 301, "WebHSTS", req, &conn_info, None);
+	redir(&["https://", host, port, req.path()].concat())
+}
+
+// HTTPS request handling.
 fn index(req: &HttpRequest) -> Box<Future<Item=HttpResponse, Error=Error>> {
 	let conn_info = req.connection_info();
-
-	if conf.hsts && req.uri().scheme_part().map(|s| s.as_str()) == Some("http") {
-		let host = trim_port(conn_info.host());
-		let tls_host = conf.tls_addr.to_owned();
-		log_data(&conf.log_format, 301, "WebHSTS", req, &conn_info, None);
-		if trim_host(&tls_host) == ":443" {
-			return redir(&["https://", host, req.path()].concat());
-		}
-		return redir(&["https://", host, trim_host(&tls_host), req.path()].concat());
-	}
 
 	let blankhead = &HeaderValue::from_static("");
 	let (path, host, fp) = handle_path(req.path(), conn_info.host(), req.headers().get(header::AUTHORIZATION).unwrap_or(blankhead).to_str().unwrap_or(""), &conf);
@@ -500,19 +509,27 @@ fn main() {
 		App::new()
 			.default_resource(|r| r.f(index))
 	})
-		.backlog(8192).maxconn(100_000).maxconnrate(8192)
+		.backlog(16384).maxconn(100_000).maxconnrate(16384)
 		.keep_alive(conf.stream_timeout as usize)
 		.bind_with(&conf.tls_addr, move || acceptor.clone())
 		.unwrap_or_else(|_err| {
 			println!("{}", ["[Fatal]: Unable to bind to ", &conf.tls_addr, "!"].concat());
 			process::exit(1);
 		})
+        .start();
+
+	server::new(|| {
+		App::new()
+			.default_resource(|r| r.f(hsts))
+	})
+		.backlog(16384).maxconn(100_000).maxconnrate(16384)
+		.keep_alive(conf.stream_timeout as usize)
 		.bind(&conf.http_addr)
 		.unwrap_or_else(|_err| {
 			println!("{}", ["[Fatal]: Unable to bind to ", &conf.http_addr, "!"].concat());
 			process::exit(1);
 		})
-        .start();
+	    .start();
 
 	println!("[Info]: Started KatWebX.");
 	let _ = sys.run();
