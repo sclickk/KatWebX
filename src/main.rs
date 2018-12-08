@@ -248,6 +248,15 @@ fn log_data(format_type: &str, status: u16, head: &str, req: &HttpRequest, conn:
 	if format_type == "" || format_type == "none" {
 		return
 	}
+
+	if format_type == "minimal" {
+		if status < 399 {
+			return
+		}
+
+		return println!("[{}][{}{}] : {}", head, trim_port(conn.host()), req.path(), trim_port(conn.remote().unwrap_or("127.0.0.1")));
+	}
+
 	let version = req.version();
 	let method = req.method();
 	let client_ip = trim_port(conn.remote().unwrap_or("127.0.0.1"));
