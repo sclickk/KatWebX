@@ -38,6 +38,7 @@ Approximate dates for the release of KatWebX (and discontinuing of KatWeb) are l
 ## Possible Features
 - On-the-fly config reloading
 - QUIC support
+- TLS mutual auth
 - Let's Encrypt integration
 - Caching proxy
 - Advanced load balancer
