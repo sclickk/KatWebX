@@ -4,11 +4,15 @@
 #![deny(clippy::all)]
 // It's not possible to fix this.
 #![allow(clippy::multiple_crate_versions)]
+#![allow(clippy::cargo_common_metadata)]
 // There's no easy way to fix this without over-complicating the code.
 #![allow(clippy::borrow_interior_mutable_const)]
 // These two are currently non-issues, and can be ignored.
 #![allow(clippy::cast_possible_truncation)]
 #![allow(clippy::cast_precision_loss)]
+
+// TODO: Fix this.
+#![allow(clippy::wildcard_dependencies)]
 
 #[macro_use]
 extern crate lazy_static;
@@ -118,7 +122,7 @@ fn proxy_request(path: &str, method: Method, headers: &HeaderMap, body: Payload,
 			ClientConnector::default()
 				.conn_lifetime(Duration::from_secs(timeout*4))
 				.conn_keep_alive(Duration::from_secs(timeout*4))
-				.start().clone())
+				.start())
 		.uri(path).method(method).disable_decompress()
 		.if_true(true, |req| {
 			for (key, value) in headers.iter() {
