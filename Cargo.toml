@@ -23,6 +23,7 @@ brotli = "*"
 rustls = "*"
 webpki = "*"
 actix = "*"
+percent-encoding = "*"
 actix-web = { version = "*", default-features = false, features = ["flate2-c", "session", "rust-tls"] }
 
 [profile.release]
