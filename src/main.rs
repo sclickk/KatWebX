@@ -432,7 +432,7 @@ fn index(req: &HttpRequest) -> Box<Future<Item=HttpResponse, Error=Error>> {
 		Body::Binary(Binary::Bytes(stream::read_file(f).unwrap_or_else(|_| Bytes::from(""))))
 	};
 
-	log_data(&conf.log_format, 200, "Web", req, &conn_info, Some(length-offset));
+	log_data(&conf.log_format, 200, "Web", req, &conn_info, Some(length));
 
 	// Craft a response.
 	let cache_int = conf.caching_timeout;
@@ -440,14 +440,16 @@ fn index(req: &HttpRequest) -> Box<Future<Item=HttpResponse, Error=Error>> {
 		HttpResponse::Ok()
 	        .content_type(&*mime)
 			.header(header::ACCEPT_RANGES, "bytes")
+			.header(header::CONTENT_LENGTH, length.to_string())
 			.if_true(full_path.ends_with(".br"), |builder| {
 				builder.header(header::CONTENT_ENCODING, "br");
 				builder.content_encoding(ContentEncoding::Identity);
 			})
-			.if_true(!full_path.ends_with(".br") && stream::gztypes.binary_search(&&*mime).is_ok(), |builder| {
-				builder.content_encoding(ContentEncoding::Auto);
+			.if_true(!full_path.ends_with(".br") && !stream::gztypes.binary_search(&&*mime).is_ok(), |builder| {
+				builder.content_encoding(ContentEncoding::Identity);
 			})
 			.if_true(has_range, |builder| {
+				builder.status(StatusCode::PARTIAL_CONTENT);
 				builder.header(header::CONTENT_RANGE, ["bytes ", &offset.to_string(), "-", &(offset+length-1).to_string(), "/", &finfo.len().to_string()].concat());
 			})
 			.if_true(cache_int == 0, |builder| {
