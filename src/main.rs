@@ -1,14 +1,14 @@
-#![cfg_attr(feature = "cargo-clippy", deny(nursery))]
-#![cfg_attr(feature = "cargo-clippy", deny(pedantic))]
-#![cfg_attr(feature = "cargo-clippy", deny(cargo))]
-#![cfg_attr(feature = "cargo-clippy", deny(all))]
+#![deny(clippy::nursery)]
+#![deny(clippy::pedantic)]
+#![deny(clippy::cargo)]
+#![deny(clippy::all)]
 // It's not possible to fix this.
-#![cfg_attr(feature = "cargo-clippy", allow(multiple_crate_versions))]
+#![allow(clippy::multiple_crate_versions)]
 // There's no easy way to fix this without over-complicating the code.
-#![cfg_attr(feature = "cargo-clippy", allow(borrow_interior_mutable_const))]
+#![allow(clippy::borrow_interior_mutable_const)]
 // These two are currently non-issues, and can be ignored.
-#![cfg_attr(feature = "cargo-clippy", allow(cast_possible_truncation))]
-#![cfg_attr(feature = "cargo-clippy", allow(cast_precision_loss))]
+#![allow(clippy::cast_possible_truncation)]
+#![allow(clippy::cast_precision_loss)]
 
 #[macro_use]
 extern crate lazy_static;
@@ -32,7 +32,7 @@ use config::Config;
 mod wspx;
 use wspx::WsProxy;
 mod certs;
-use actix::{Message, System};
+use actix::System;
 use actix_web::{actix::Actor, server, server::{RustlsAcceptor, ServerFlags}, client, client::ClientConnector, App, Body, Binary, http::{header, header::{HeaderValue, HeaderMap}, Method, ContentEncoding, StatusCode}, HttpRequest, HttpResponse, HttpMessage, AsyncResponder, Error, dev::{ConnectionInfo, Payload}, ws};
 use futures::future::{Future, result};
 use std::{process, cmp, fs, string::String, fs::File, path::Path, io::Read, time::Duration, sync::Arc, ffi::OsStr};

@@ -2,9 +2,9 @@
 // Original source: https://github.com/actix/actix-web/blob/v0.7.8/src/fs.rs
 
 // These are currently non-issues, and can be ignored.
-#![cfg_attr(feature = "cargo-clippy", allow(cast_possible_wrap))]
-#![cfg_attr(feature = "cargo-clippy", allow(cast_sign_loss))]
-#![cfg_attr(feature = "cargo-clippy", allow(filter_map))]
+#![allow(clippy::cast_possible_wrap)]
+#![allow(clippy::cast_sign_loss)]
+#![allow(clippy::filter_map)]
 
 extern crate lazy_static;
 extern crate actix_web;
