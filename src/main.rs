@@ -24,6 +24,7 @@ extern crate regex;
 extern crate base64;
 extern crate bytes;
 extern crate chrono;
+extern crate percent_encoding;
 mod stream;
 mod ui;
 mod config;
@@ -40,6 +41,7 @@ use base64::decode;
 use mime_sniffer::MimeTypeSniffer;
 use regex::{Regex, NoExpand};
 use chrono::Local;
+use percent_encoding::{percent_decode};
 use rustls::{ALL_CIPHERSUITES, NoClientAuth, ServerConfig, BulkAlgorithm};
 
 lazy_static! {
@@ -261,7 +263,7 @@ fn log_data(format_type: &str, status: u16, head: &str, req: &HttpRequest, conn:
 	let method = req.method();
 	let client_ip = trim_port(conn.remote().unwrap_or("127.0.0.1"));
 	let host = trim_port(conn.host());
-	let path = req.path();
+	let path = percent_decode(req.path().as_bytes()).decode_utf8_lossy();
 	let headers = req.headers();
 	let time = Local::now().format("%d/%b/%Y:%H:%M:%S %z");
 
@@ -345,10 +347,11 @@ fn hsts(req: &HttpRequest) -> Box<Future<Item=HttpResponse, Error=Error>> {
 
 // HTTPS request handling.
 fn index(req: &HttpRequest) -> Box<Future<Item=HttpResponse, Error=Error>> {
+	let rawpath = &percent_decode(req.path().as_bytes()).decode_utf8_lossy();
 	let conn_info = req.connection_info();
 
 	let blankhead = &HeaderValue::from_static("");
-	let (path, host, fp) = handle_path(req.path(), conn_info.host(), req.headers().get(header::AUTHORIZATION).unwrap_or(blankhead).to_str().unwrap_or(""), &conf);
+	let (path, host, fp) = handle_path(rawpath, conn_info.host(), req.headers().get(header::AUTHORIZATION).unwrap_or(blankhead).to_str().unwrap_or(""), &conf);
 
 	if host == "redir" {
 		if path == "unauth" {
@@ -400,15 +403,15 @@ fn index(req: &HttpRequest) -> Box<Future<Item=HttpResponse, Error=Error>> {
 	if let Ok((fi, m)) = open_meta(&full_path) {f = fi; finfo = m} else {
 		if path.ends_with("/index.html") {
 			log_data(&conf.log_format, 200, "WebDir", req, &conn_info, None);
-			return ui::dir_listing(&[&*host, req.path()].concat(), &host)
+			return ui::dir_listing(&[&*host, rawpath].concat(), &host)
 		}
 
 		log_data(&conf.log_format, 404, "WebNotFound", req, &conn_info, None);
-		return ui::http_error(StatusCode::NOT_FOUND, "404 Not Found", &["The resource ", req.path(), " could not be found."].concat());
+		return ui::http_error(StatusCode::NOT_FOUND, "404 Not Found", &["The resource ", rawpath, " could not be found."].concat());
 	}
 
 	if finfo.is_dir() {
-		return redir(&[req.path(), "/"].concat());
+		return redir(&[rawpath, "/"].concat());
 	}
 
 	// Parse a ranges header if it is present, and then turn a File into a stream.
